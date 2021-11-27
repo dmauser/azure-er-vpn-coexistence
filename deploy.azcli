@@ -1,6 +1,6 @@
 ## CLI deploy example deploying using a different VNET address space (Azure and On-premises)
 #Variables
-rg=RSLAB-VPN-ER #Define your resource group
+rg=LAB-VPN-ER-Coexistence #Define your resource group
 VMAdminUsername=dmauser #specify your user
 location=centralus #Set Region
 mypip=$(curl ifconfig.io -s) #captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
@@ -10,12 +10,6 @@ ERResourceID="/subscriptions/SubID/resourceGroups/RG/providers/Microsoft.Network
 UseAutorizationKey="No" #Use authorization Key, possible values Yes or No.
 AutorizationKey="null" #Only add ER Authorization Key if UseAutorizationKey=Yes.
 
-#Define emulated On-premises parameters:
-OnPremName=OnPrem #On-premises Name
-OnPremVnetAddressSpace=192.168.10.0/24 #On-premises VNET address space
-OnPremSubnet1prefix=192.168.10.0/25 #On-premises Subnet1 address prefix
-OnPremgatewaySubnetPrefix=192.168.10.128/27 #On-premises Gateways address prefix
-OnPremgatewayASN=60010 #On-premises VPN Gateways ASN
 
 #Define parameters for Azure Hub and Spokes:
 AzurehubName=Az-Hub #Azure Hub Name
