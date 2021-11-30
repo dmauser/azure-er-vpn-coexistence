@@ -61,8 +61,8 @@
                 "spoke1AddressSpacePrefix": "10.0.1.0/24",
                 "spoke1Subnet1Prefix": "10.0.1.0/27",
                 "spoke2Name": "Az-Spk2",
-                "spoke2AddressSpacePrefix": "10.0.1.0/24",
-                "spoke2Subnet1Prefix": "10.0.1.0/27"
+                "spoke2AddressSpacePrefix": "10.0.2.0/24",
+                "spoke2Subnet1Prefix": "10.0.2.0/27"
             }
         }
     },
