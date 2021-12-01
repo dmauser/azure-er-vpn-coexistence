@@ -40,13 +40,20 @@
                 "description": "Select VPN Gateway Generation."
             }
         },
+        "vpnGatewayAsn": {
+            "type": "string",
+            "metadata": {
+                "description": "VPN Gateways ASN"
+            },
+            "defaultValue": "65515"
+        },
         "location": {
             "type": "string",
             "metadata": {
                 "description": "Location of the resources"
             },
             "defaultValue": "[resourceGroup().location]"
-        },
+        },        
         "Azure": {
             "type": "object",
             "defaultValue": {
@@ -82,7 +89,7 @@
             "ergatewayName": "[concat(parameters('Azure').hubname,'-ergw')]",
             "gatewayPublicIPName1": "[concat(parameters('Azure').hubname,'-vpngw-pip1')]",
             "gatewayPublicIPName2": "[concat(parameters('Azure').hubname,'-vpngw-pip2')]",
-            "asn": "65515",
+            "asn": "[parameters('vpnGatewayAsn')]",
             "routeserverName": "[concat(parameters('Azure').hubname,'-routeserver')]",
             "routeserverSubnetName": "RouteServerSubnet",
             "AzureFirewallSubnetName": "AzureFirewallSubnet",
