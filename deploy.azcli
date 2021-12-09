@@ -33,7 +33,7 @@ echo "*** It will take around 30 minutes to finish the deployment ***"
 az group create --name $rg --location $location
 az deployment group create --name VPNERCoexist-$RANDOM --resource-group $rg \
 --template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeploy.json \
---parameters deployHubVPNGateway=true gatewaySku=VpnGw1 vpnGatewayGeneration=Generation1 Restrict_SSH_VM_AccessByPublicIP=$mypip sharedKey=$sharedkey deployHubERGateway=true connect-to-ExpressRouteCircuit=true expressRouteCircuitID=$ERResourceID  \
+--parameters deployHubVPNGateway=true gatewaySku=VpnGw1 vpnGatewayGeneration=Generation1 Restrict_SSH_VM_AccessByPublicIP=$mypip sharedKey=$sharedkey deployHubERGateway=true connect-to-ExpressRouteCircuit=true expressRouteCircuitID=$ERResourceID Onprem=$JsonOnPrem Azure=$JsonAzure \
 --output none
 
 #Misc Check Deployment Status
