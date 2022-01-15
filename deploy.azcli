@@ -1,7 +1,7 @@
 # Run commands below over Linux VM with Azure CLI and gcloud installed.
 
 #Azure Variables
-rg=LAB-VPN-ER-Coexistence #Define your resource group
+rg=LAB-VPN-GCP #Define your resource group
 location=centralus #Set Region
 mypip=$(curl -4 ifconfig.io -s) #captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
 sharedkey=$(openssl rand -base64 24) #VPN Gateways S2S shared key is automatically generated.
@@ -31,16 +31,15 @@ echo "*** It will take around 30 minutes to finish the deployment ***"
 az group create --name $rg --location $location
 az deployment group create --name VPNERCoexist-$RANDOM --resource-group $rg \
 --template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeploy.json \
---parameters deployHubVPNGateway=true gatewaySku=VpnGw1 vpnGatewayGeneration=Generation1 Restrict_SSH_VM_AccessByPublicIP=$mypip sharedKey=$sharedkey deployHubERGateway=true Onprem=$JsonOnPrem Azure=$JsonAzure \
+--parameters deployHubVPNGateway=true gatewaySku=VpnGw1 vpnGatewayGeneration=Generation1 Restrict_SSH_VM_AccessByPublicIP=$mypip sharedKey=$sharedkey deployHubERGateway=false Onprem=$JsonOnPrem Azure=$JsonAzure \
 --output none
-
 
 # Define GCP variables
 project=angular-expanse-327722 #Set your project Name. Get your PROJECT_ID use command: gcloud projects list 
 region=us-central1 #Set your region. Get Regions/Zones Use command: gcloud compute zones list
-zone=us-central1-c # Set availability zone: a, b or c.
+zone=$region-c # Set availability zone: a, b or c.
 vpcrange=192.168.0.0/24
-envname=onprem
+envname=vpnlab
 vmname=vm1
 mypip=$(curl -4 ifconfig.io -s) #Gets your Home Public IP or replace with that information. It will add it to the Firewall Rule.
 
@@ -53,7 +52,6 @@ gcloud compute firewall-rules create $envname-allow-traffic-from-azure --network
 
 #Create Ubuntu VM:
 gcloud compute instances create $envname-vm1 --project=$project --zone=$zone --machine-type=f1-micro --network-interface=subnet=$envname-subnet,network-tier=PREMIUM --image=ubuntu-1804-bionic-v20210817 --image-project=ubuntu-os-cloud --boot-disk-size=10GB --boot-disk-type=pd-balanced --boot-disk-device-name=$envname-vm1 
-
 
 # *** Setup VPN tunnels ***
 # GCP side
@@ -86,12 +84,11 @@ az network vpn-connection create --name Azure-to-OnpremGCP \
 --shared-key $sharedkey \
 --local-gateway2 lng-onprem-gcp
 
-# Check VPN Status
-# Azure
+# Check VPN Status on Azure side
 az network vpn-connection show -g $rg --n Azure-to-OnpremGCP --query connectionStatus -o tsv
 az network vpn-connection list-ike-sas -g $rg --n Azure-to-OnpremGCP
 
-#GCP VPN Status 
+#GCP VPN Status on GCP Side
 #More info: https://cloud.google.com/network-connectivity/docs/vpn/how-to/checking-vpn-status
 gcloud compute vpn-tunnels describe vpn-to-azure \
    --region=$region \
@@ -99,7 +96,22 @@ gcloud compute vpn-tunnels describe vpn-to-azure \
    --format='flattened(status,detailedStatus)'
 
 
+# Test VPN connectivity - SSH Azure VM and ping GCP VM.
+# Get Azure Hub and Spoke VMs IPs 
+echo $AzurehubName-lxvm && az network nic show --resource-group $rg -n $AzurehubName-lxvm-nic --query "ipConfigurations[].privateIpAddress" -o tsv &&
+echo $Azurespoke1Name-lxvm && az network nic show --resource-group $rg -n $Azurespoke1Name-lxvm-nic --query "ipConfigurations[].privateIpAddress" -o tsv &&
+echo $Azurespoke2Name-lxvm && az network nic show --resource-group $rg -n $Azurespoke2Name-lxvm-nic --query "ipConfigurations[].privateIpAddress" -o tsv
+
+# Log on GCP VM and try to reach all tree VMs listed above:
+gcloud compute ssh $envname-vm1 --zone=$zone
+
+# Inside GCP VM ping Azure VM
+ping 10.0.10.4 -O
+
 ### Bringing Azure ExpressRoute and Interconnect 
+
+#Deploy ExpressRoute Gateway
+--> Add CLI commands
 
 ## GCP
 # 1) Deploy Cloud Router:
@@ -125,11 +137,21 @@ az network vpn-connection create --name Connection-to-Onprem \
 --express-route-circuit2 $erid \
 --routing-weight 0
 
+### Clean up VPN Only ###
+# GCP
+gcloud compute vpn-tunnels delete vpn-to-azure --region $region --quiet
+gcloud compute routes delete vpn-to-azure-route-1 --quiet
+gcloud compute forwarding-rules delete onpremvpn-rule-esp --region $region --quiet
+gcloud compute forwarding-rules delete onpremvpn-rule-udp500 --region $region --quiet
+gcloud compute forwarding-rules delete onpremvpn-rule-udp4500 --region $region --quiet
+gcloud compute target-vpn-gateways delete onpremvpn --region $region --quiet
+gcloud compute addresses delete onpremvpn-pip --region $region --quiet
+gcloud compute instances delete $envname-vm1 --project=$project --zone=$zone --quiet
+gcloud compute firewall-rules delete $envname-allow-traffic-from-azure --quiet
+gcloud compute networks subnets delete $envname-subnet --project=$project --region=$region --quiet
+gcloud compute networks delete $envname-vpc --project=$project --quiet
 
-
-
-
-### Clean up ###
+### Clean up VPN + ExpressRoute/Interconnect ###
 # GCP
 gcloud compute vpn-tunnels delete vpn-to-azure --region $region --quiet
 gcloud compute routes delete vpn-to-azure-route-1 --quiet
@@ -139,7 +161,7 @@ gcloud compute forwarding-rules delete onpremvpn-rule-udp4500 --region $region -
 gcloud compute target-vpn-gateways delete onpremvpn --region $region --quiet
 gcloud compute addresses delete onpremvpn-pip --region $region --quiet
 gcloud compute interconnects attachments delete $envname-vlan --region $region --quiet 
-gcloud compute routers delete $envname-router --project=$project --region=$region --quiet
+gcloud compute routers delete $envname-router --project=$project --region $region --quiet
 gcloud compute instances delete $envname-vm1 --project=$project --zone=$zone --quiet
 gcloud compute firewall-rules delete $envname-allow-traffic-from-azure --quiet
 gcloud compute networks subnets delete $envname-subnet --project=$project --region=$region --quiet
