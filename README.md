@@ -2,4 +2,4 @@
 
 Detailed instructions coming soon.
 
-Validated script for this lab can be found in: (deploy.azcli)[https://raw.githubusercontent.com/dmauser/azure-er-vpn-coexistence/main/deploy.azcli]
+Validated script for this lab can be found in: [deploy.azcli](https://raw.githubusercontent.com/dmauser/azure-er-vpn-coexistence/main/deploy.azcli)
