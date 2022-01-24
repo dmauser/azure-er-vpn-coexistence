@@ -1,10 +1,5 @@
-# azure-er-vpn-coexistence-static
+# Azure VPN/ER Coexistence using GCP as On-premises
 
+Detailed instructions coming soon.
 
-Script
-
-```bash
-![](deploy.azcli)
-```
-
-
+Validated script for this lab can be found in: (deploy.azcli)[https://raw.githubusercontent.com/dmauser/azure-er-vpn-coexistence/main/deploy.azcli]
