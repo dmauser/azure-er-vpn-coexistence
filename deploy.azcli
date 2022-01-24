@@ -47,7 +47,7 @@ az deployment group create --name VPNERCoexist-$RANDOM --resource-group $rg \
 --output none
 
 # Define GCP variables (Mandatory: Define your GCP project variable)
-project=<add here> #Set your project Name (REQUIRED). Get your PROJECT_ID use command: sudo gcloud projects list 
+project=<add here> #Set your project Name (REQUIRED). Get your PROJECT_ID use command: sudo gcloud projects list
 region=us-central1 # (OPTIONAL) Set your region. Get Regions/Zones Use command: gcloud compute zones list
 zone=$region-c # Set availability zone: a, b or c.
 vpcrange=192.168.0.0/24
@@ -127,10 +127,10 @@ echo Az-Spk2-lxvm && ping 10.0.12.4 -O -c 5
 
 ## GCP
 # 1) Deploy Cloud Router:
-gcloud compute routers create $envname-router --project=$project --region=$region --network=$envname-vpc --asn=16550
+sudo gcloud compute routers create $envname-router --project=$project --region=$region --network=$envname-vpc --asn=16550
 
 # 2) Deploy DirectConnect:
-gcloud compute interconnects attachments partner create $envname-vlan --region $region --edge-availability-domain availability-domain-1 --router $envname-router --admin-enabled
+sudo gcloud compute interconnects attachments partner create $envname-vlan --region $region --edge-availability-domain availability-domain-1 --router $envname-router --admin-enabled
 #Note save pairing key to provision GCP connection with your Provider.
 
 # 3) Using Provider website create a VXC (Virtual Cross Connection) to GCP using pairing Key
@@ -146,11 +146,11 @@ az network express-route create --bandwidth 50 -n $ername --peering-location $cx
 
 # 2) Using Provider website create a VXC (Virtual Cross Connection) to Azure using provided Service Key
 
-# 3) Connect ExpressRoute Circuit to the ExpressRoute Gateway in the VNET.
+# 3) Connect ExpressRoute Circuit to the ExpressRoute Gateway in the VNET. Note: Only continue if you ExpressRoute Circuit is fully provisioned.
 # Create connection from ER VNET Gateway to ER Circuit
 erid=$(az network express-route show -n $ername -g $rg --query id -o tsv) 
 az network vpn-connection create --name ER-Connection-to-Onprem \
---resource-group $rg --vnet-gateway1 $hubname-ergw \
+--resource-group $rg --vnet-gateway1 $AzurehubName-ergw \
 --express-route-circuit2 $erid \
 --routing-weight 0
 
