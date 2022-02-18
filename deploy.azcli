@@ -96,7 +96,7 @@ az network vpn-connection create --name Azure-to-OnpremGCP \
 --local-gateway2 lng-onprem-gcp
 
 #Check VPN Status on Azure side
-# a) Check Connection Status
+# a) Check Connection Status (Note: you may get Unknown but wait a minute and issue the command again)
 az network vpn-connection show -g $rg --n Azure-to-OnpremGCP --query connectionStatus -o tsv
 
 # b) Check vpn connection IKE/SAs details
