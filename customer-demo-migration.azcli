@@ -47,7 +47,7 @@ az deployment group create --name VPNERCoexist-$RANDOM --resource-group $rg \
 --output none
 
 # Define GCP variables (Mandatory: Define your GCP project variable)
-project=<add here> #Set your project Name (REQUIRED). Get your PROJECT_ID use command: sudo gcloud projects list
+project=angular-expanse-327722 #Set your project Name (REQUIRED). Get your PROJECT_ID use command: sudo gcloud projects list
 region=us-central1 # (OPTIONAL) Set your region. Get Regions/Zones Use command: gcloud compute zones list
 zone=$region-c # Set availability zone: a, b or c.
 vpcrange=10.120.0.0/24
@@ -85,6 +85,7 @@ az network local-gateway create --gateway-ip-address $gcpvpnpip \
 azgwnamepip=$(az network public-ip show -g $rg -n Az-Hub-vpngw-pip1 --query ipAddress -o tsv)
 sudo gcloud compute vpn-tunnels create vpn-to-azure --project=$project --region=$region --peer-address=$azgwnamepip --shared-secret=$sharedkey --ike-version=2 --local-traffic-selector=0.0.0.0/0 --remote-traffic-selector=0.0.0.0/0 --target-vpn-gateway=onpremvpn 
 sudo gcloud compute routes create vpn-to-azure-route-1 --project=$project --network=$envname-vpc --priority=1000 --destination-range=10.0.0.0/8 --next-hop-vpn-tunnel=vpn-to-azure --next-hop-vpn-tunnel-region=$region
+sudo gcloud compute routes create vpn-to-azure-route-2 --project=$project --network=$envname-vpc --priority=1000 --destination-range=10.0.10.0/24 --next-hop-vpn-tunnel=vpn-to-azure --next-hop-vpn-tunnel-region=$region
 
 #Azure VPN tunnel to GCP
 gwname=Az-Hub-vpngw
@@ -139,10 +140,11 @@ sudo gcloud compute interconnects attachments partner create $envname-vlan --reg
 # 1) Create ExpressRoute Circuit
 # In this example ExpressRoute is created in Dallas using Mepgaport as Provider. Make the necessary changes based on your needs
 # Define variables
-ername=ER-Dallas-Circuit # ExpressRoute Circuit Name
+ername=ER-Dallas-Demo-Circuit # ExpressRoute Circuit Name
 cxlocation=Dallas #Peering Location
 provider=Megaport # Provider
-az network express-route create --bandwidth 50 -n $ername --peering-location $cxlocation -g $rg --provider $provider -l $location --sku-family MeteredData --sku-tier Standard
+az network express-route create --bandwidth 50 -n $ername --peering-location $cxlocation -g $rg --provider $provider -l $location --sku-family MeteredData --sku-tier Standard --output none
+echo "ER Service Key:" az network express-route show -n $ername -g $rg --query serviceKey
 
 # 2) Using Provider website create a VXC (Virtual Cross Connection) to Azure using provided Service Key
 
@@ -152,7 +154,8 @@ erid=$(az network express-route show -n $ername -g $rg --query id -o tsv)
 az network vpn-connection create --name ER-Connection-to-Onprem \
 --resource-group $rg --vnet-gateway1 $AzurehubName-ergw \
 --express-route-circuit2 $erid \
---routing-weight 0
+--routing-weight 0 \
+--output none
 
 # At this point when ExpressRoute is up. You should see connectivity switch between VPN and ER. 
 # Make sure you have a ping between an Azure VM and GCP VM
@@ -163,6 +166,7 @@ az network vpn-connection create --name ER-Connection-to-Onprem \
 # GCP
 sudo gcloud compute vpn-tunnels delete vpn-to-azure --region $region --quiet
 sudo gcloud compute routes delete vpn-to-azure-route-1 --quiet
+sudo gcloud compute routes delete vpn-to-azure-route-2 --quiet
 sudo gcloud compute forwarding-rules delete onpremvpn-rule-esp --region $region --quiet
 sudo gcloud compute forwarding-rules delete onpremvpn-rule-udp500 --region $region --quiet
 sudo gcloud compute forwarding-rules delete onpremvpn-rule-udp4500 --region $region --quiet
@@ -177,3 +181,16 @@ sudo cloud compute networks delete $envname-vpc --project=$project --quiet
 
 # Azure
 az group delete -g $rg --no-wait --yes
+
+
+#Specific routes
+bgpsession=$(gcloud compute routers describe $envname-router  --project=$project --region=$region --format='value(bgpPeers.name)')
+
+gcloud compute routers update-bgp-peer $envname-router \
+ --peer-name $bgpsession \
+ --advertisement-mode custom \
+ --set-advertisement-ranges 10.0.0.0/8 \
+ --project=$project \
+ --region=$region
+
+ gcloud compute routers describe $envname-router --project=$project --region=$region 
