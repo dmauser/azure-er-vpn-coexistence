@@ -111,9 +111,9 @@ gcloud compute vpn-tunnels describe vpn-to-azure --region=$region --format='flat
 
 #Test VPN connectivity - SSH Azure VM and ping GCP VM.
 #Get Azure Hub and Spoke VMs IPs 
-echo $AzurehubName-lxvm && az network nic show --resource-group $rg -n $AzurehubName-lxvm-nic --query "ipConfigurations[].privateIpAddress" -o tsv &&
-echo $Azurespoke1Name-lxvm && az network nic show --resource-group $rg -n $Azurespoke1Name-lxvm-nic --query "ipConfigurations[].privateIpAddress" -o tsv &&
-echo $Azurespoke2Name-lxvm && az network nic show --resource-group $rg -n $Azurespoke2Name-lxvm-nic --query "ipConfigurations[].privateIpAddress" -o tsv
+echo $AzurehubName-lxvm && az network nic show --resource-group $rg -n $AzurehubName-lxvm-nic --query "ipConfigurations[].privateIPAddress" -o tsv &&
+echo $Azurespoke1Name-lxvm && az network nic show --resource-group $rg -n $Azurespoke1Name-lxvm-nic --query "ipConfigurations[].privateIPAddress" -o tsv &&
+echo $Azurespoke2Name-lxvm && az network nic show --resource-group $rg -n $Azurespoke2Name-lxvm-nic --query "ipConfigurations[].privateIPAddress" -o tsv
 
 #Log on GCP VM and try to reach all tree VMs listed above:
 gcloud compute ssh $envname-vm1 --zone=$zone

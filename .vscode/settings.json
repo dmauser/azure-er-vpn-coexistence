@@ -4,5 +4,18 @@
         "MD025": {
             "front_matter_title": ""
         }
+    },
+    "spellright.language": [
+        "en"
+    ],
+    "spellright.documentTypes": [
+        "markdown",
+        "latex",
+        "plaintext"
+    ],
+    "spellright.parserByClass": {
+        "azcli": {
+            "parser": "plain"
+        }
     }
 }
