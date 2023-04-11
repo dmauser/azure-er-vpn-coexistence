@@ -100,10 +100,10 @@ az network vpn-connection create --name Azure-to-OnpremGCP \
 
 #Check VPN Status on Azure side
 # a) Check Connection Status (Note: you may get Unknown but wait a minute and issue the command again)
-az network vpn-connection show -g $rg --n Azure-to-OnpremGCP --query connectionStatus -o tsv
+az network vpn-connection show -g $rg -n Azure-to-OnpremGCP --query connectionStatus -o tsv
 
 # b) Check vpn connection IKE/SAs details
-az network vpn-connection list-ike-sas -g $rg --n Azure-to-OnpremGCP
+az network vpn-connection list-ike-sas -g $rg -n Azure-to-OnpremGCP
 
 #GCP VPN Status on GCP Side
 #More info: https://cloud.google.com/network-connectivity/docs/vpn/how-to/checking-vpn-status
@@ -122,7 +122,7 @@ gcloud compute ssh $envname-vm1 --zone=$zone
 echo Az-Hub-Lxvm && ping 10.0.10.4 -O -c 5
 echo Az-Spk1-lxvm && ping 10.0.11.4 -O -c 5
 echo Az-Spk2-lxvm && ping 10.0.12.4 -O -c 5
-
+exit
 ### Bringing Azure ExpressRoute and Interconnect 
 
 ## GCP
