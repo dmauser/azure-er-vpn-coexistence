@@ -45,6 +45,3 @@ az network vnet-gateway list-advertised-routes -g $rg -n $AzurehubName-ergw \
 ## Learned BGP Routes
 az network vnet-gateway list-learned-routes -g $rg -n $AzurehubName-ergw -o table
 
-# 4) Route Server Config / learned and advertised routes (Note, it does not show for iBGP but only for eBGP peering with NVAs)
-az network routeserver show -g $rg -n $AzurehubName-routeserver
-az network routeserver peering list -g $rg --routeserver $AzurehubName-routeserver #empty result expected because that is just for eBGP with 3rd party NVAs.
