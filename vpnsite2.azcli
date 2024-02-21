@@ -1,0 +1,67 @@
+# Define GCP variables (Mandatory: Define your GCP project variable)
+region=us-central1 # (OPTIONAL) Set your region. Get Regions/Zones Use command: gcloud compute zones list
+zone=$region-c # Set availability zone: a, b or c.
+vpcrange=192.168.100.0/24
+envname=vpnsite2
+vmname=vm1
+mypip=$(curl -4 ifconfig.io -s) #Gets your Home Public IP or replace with that information. It will add it to the Firewall Rule.
+echo "Enter your GCP Project ID: "
+read project
+
+#Set defaul project
+gcloud config set project $project
+
+#Create VPC
+gcloud compute networks create $envname-vpc --subnet-mode=custom --mtu=1460 --bgp-routing-mode=regional
+gcloud compute networks subnets create $envname-subnet --range=$vpcrange --network=$envname-vpc --region=$region
+
+#Create Firewall Rule
+gcloud compute firewall-rules create $envname-allow-traffic-from-azure --network $envname-vpc --allow tcp,udp,icmp --source-ranges 192.168.0.0/16,10.0.0.0/8,172.16.0.0/16,35.235.240.0/20,$mypip/32
+
+#Create Ubuntu VM:
+gcloud compute instances create $envname-vm1 --zone=$zone --machine-type=f1-micro --network-interface=subnet=$envname-subnet,network-tier=PREMIUM --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud --boot-disk-size=10GB --boot-disk-type=pd-balanced --boot-disk-device-name=$envname-vm1
+
+# *** Setup VPN tunnels ***
+# GCP side
+#GCP VPN
+gcloud compute target-vpn-gateways create $envname-vpn --region=$region --network=$envname-vpc 
+gcloud compute addresses create $envname-vpn-pip --region=$region
+gcpvpnpip=$(gcloud compute addresses describe $envname-vpn-pip --region=$region --format='value(address)')
+gcloud compute forwarding-rules create $envname-vpn-rule-esp --region=$region --address=$gcpvpnpip --ip-protocol=ESP --target-vpn-gateway=$envname-vpn 
+gcloud compute forwarding-rules create $envname-vpn-rule-udp500 --region=$region --address=$gcpvpnpip --ip-protocol=UDP --ports=500 --target-vpn-gateway=$envname-vpn 
+gcloud compute forwarding-rules create $envname-vpn-rule-udp4500 --region=$region --address=$gcpvpnpip --ip-protocol=UDP --ports=4500 --target-vpn-gateway=$envname-vpn
+
+#Azure Local Network Gateway
+az network local-gateway create --gateway-ip-address $gcpvpnpip \
+--name lng-$envname-gcp \
+--resource-group $rg \
+--local-address-prefixes 192.168.100.0/24 \
+--output none
+
+#GCP VPN Tunnel to Azure
+azgwnamepip=$(az network public-ip show -g $rg -n az-hub-vpngw-pip1 --query ipAddress -o tsv)
+gcloud compute vpn-tunnels create $envname-vpn-to-azure --region=$region --peer-address=$azgwnamepip --shared-secret=$sharedkey --ike-version=2 --local-traffic-selector=0.0.0.0/0 --remote-traffic-selector=0.0.0.0/0 --target-vpn-gateway=$envname-vpn 
+gcloud compute routes create $envname-vpn-to-azure-route-1 --network=$envname-vpc --priority=1000 --destination-range=10.0.0.0/8 --next-hop-vpn-tunnel=$envname-vpn-to-azure --next-hop-vpn-tunnel-region=$region
+
+# Loop script to check az-hub-vpngw provisioning state
+while [ $(az network vnet-gateway show -g $rg -n az-hub-vpngw --query provisioningState -o tsv) != "Succeeded" ]; do echo "Waiting for az-hub-vpngw to be provisioned..."; sleep 10; done
+
+#Azure VPN tunnel to GCP
+gwname=Az-Hub-vpngw
+az network vpn-connection create --name Azure-to-$envname-vpn \
+--resource-group $rg \
+--vnet-gateway1 $gwname \
+--location $(az group show -n $rg --query location -o tsv) \
+--shared-key $sharedkey \
+--local-gateway2 lng-$envname-gcp
+
+#Check VPN Status on Azure side
+# a) Check Connection Status (Note: you may get Unknown but wait a minute and issue the command again)
+az network vpn-connection show -g $rg -n Azure-to-$envname-vpn --query connectionStatus -o tsv
+
+# b) Check vpn connection IKE/SAs details
+az network vpn-connection list-ike-sas -g $rg -n Azure-to-$envname-vpn
+
+#GCP VPN Status on GCP Side
+#More info: https://cloud.google.com/network-connectivity/docs/vpn/how-to/checking-vpn-status
+gcloud compute vpn-tunnels describe $envname-vpn-to-azure --region=$region --format='flattened(status,detailedStatus)'

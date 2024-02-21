@@ -1,5 +1,5 @@
 #Define Variables
-rg=LAB-ER-VPN-Coexistence  #Define your resource group
+rg=lab-er-vpn-coexistence  #Define your resource group
 location=$(az group show -g $rg --query location -o tsv)
 #Define parameters for Azure Hub and Spokes:
 AzurehubName=Az-Hub #Azure Hub Name
@@ -36,4 +36,12 @@ for neighbor in $(az network vnet-gateway list-bgp-peer-status -g $rg -n $Azureh
 done
 ## Learned BGP Routes
 az network vnet-gateway list-learned-routes -g $rg -n $AzurehubName-ergw -o table
+
+# 3) Route Server
+# RS instance IPs
+rsname=$(az network routeserver list --resource-group $rg --query "[].name" -o tsv | grep az)
+echo Router Server name $rsname: && \
+echo Route Server IPs: && \
+az network routeserver show --name $rsname --resource-group $rg --query 'virtualRouterIps[]' -o tsv
+
 
