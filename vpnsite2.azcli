@@ -65,3 +65,19 @@ az network vpn-connection list-ike-sas -g $rg -n Azure-to-$envname-vpn
 #GCP VPN Status on GCP Side
 #More info: https://cloud.google.com/network-connectivity/docs/vpn/how-to/checking-vpn-status
 gcloud compute vpn-tunnels describe $envname-vpn-to-azure --region=$region --format='flattened(status,detailedStatus)'
+
+### Clean up VPN + ExpressRoute/Interconnect ###
+# GCP
+gcloud compute vpn-tunnels delete $envname-vpn-to-azure --region $region --quiet
+gcloud compute routes delete $envname-vpn-to-azure-route-1 --quiet
+gcloud compute forwarding-rules delete $envname-rule-esp --region $region --quiet
+gcloud compute forwarding-rules delete $envname-rule-udp500 --region $region --quiet
+gcloud compute forwarding-rules delete $envname-rule-udp4500 --region $region --quiet
+gcloud compute target-vpn-gateways delete $envname --region $region --quiet
+gcloud compute addresses delete $envname-pip --region $region --quiet
+gcloud compute interconnects attachments delete $envname-vlan --region $region --quiet 
+gcloud compute routers delete $envname-router --region $region --quiet
+gcloud compute instances delete $envname-vm1 --zone=$zone --quiet
+gcloud compute firewall-rules delete $envname-allow-traffic-from-azure --quiet
+gcloud compute networks subnets delete $envname-subnet --region=$region --quiet
+gcloud compute networks delete $envname-vpc --quiet
