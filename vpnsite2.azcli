@@ -5,6 +5,27 @@
 #   rg=lab-er-vpn-coexistence
 #   sharedkey=<the same key generated/used by deploy.azcli>
 
+# ===== Prerequisite check (run this first) =====
+check_prereqs() {
+  local ok=0
+  for tool in az gcloud curl; do
+    if command -v "$tool" >/dev/null 2>&1; then echo "OK  : $tool found"
+    else echo "FAIL: $tool not found in PATH"; ok=1; fi
+  done
+  if az account show >/dev/null 2>&1; then
+    echo "OK  : Azure subscription -> $(az account show --query name -o tsv) ($(az account show --query id -o tsv))"
+  else echo "FAIL: not logged in to Azure. Run: az login"; ok=1; fi
+  if gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q .; then
+    echo "OK  : gcloud account -> $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+  else echo "FAIL: no active gcloud account. Run: gcloud auth login"; ok=1; fi
+  if [ -n "$rg" ]; then echo "OK  : \$rg = $rg"; else echo "FAIL: \$rg not set. Run deploy.azcli first, or: rg=lab-er-vpn-coexistence"; ok=1; fi
+  if [ -n "$sharedkey" ]; then echo "OK  : \$sharedkey is set"; else echo "FAIL: \$sharedkey not set. Reuse the key from deploy.azcli."; ok=1; fi
+  if [ "$ok" -ne 0 ]; then echo ">>> Prerequisites NOT met. Fix the FAIL items above before continuing."; return 1; fi
+  echo ">>> All prerequisites satisfied."
+}
+check_prereqs
+# ===============================================
+
 # Define GCP variables (Mandatory: Define your GCP project variable)
 region=us-central1 # (OPTIONAL) Set your region. Get Regions/Zones Use command: gcloud compute zones list
 zone=$region-c # Set availability zone: a, b or c.

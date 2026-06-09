@@ -79,33 +79,51 @@ flowchart LR
 
 | File | Purpose |
 |------|---------|
-| [`deploy.azcli`](./deploy.azcli) | **Main lab script.** Deploys the Azure hub/spoke + gateways, the GCP on-prem VPC/VM, the S2S VPN, then the ExpressRoute + Interconnect, plus connectivity tests and cleanup. |
-| [`routes.azcli`](./routes.azcli) | Validation helpers — VM effective routes, BGP peer status, learned/advertised routes for the VPN GW, ER GW, and Route Server. |
-| [`vpnsite2.azcli`](./vpnsite2.azcli) | Adds a **second** GCP on-prem site to the same Azure hub VPN gateway. Reuses `$rg`/`$sharedkey` from `deploy.azcli`. |
+| [`deploy.azcli`](./deploy.azcli) | **Main lab script (bash/Linux).** Deploys the Azure hub/spoke + gateways, the GCP on-prem VPC/VM, the S2S VPN, then the ExpressRoute + Interconnect, plus connectivity tests and cleanup. Starts with a `check_prereqs` block. |
+| [`deploy.ps1`](./deploy.ps1) | **Main lab script (PowerShell/Windows)** — Windows port of `deploy.azcli` with a `Test-Prereqs` block. |
+| [`routes.azcli`](./routes.azcli) / [`routes.ps1`](./routes.ps1) | Validation helpers (bash / PowerShell) — VM effective routes, BGP peer status, learned/advertised routes for the VPN GW, ER GW, and Route Server. |
+| [`vpnsite2.azcli`](./vpnsite2.azcli) / [`vpnsite2.ps1`](./vpnsite2.ps1) | Adds a **second** GCP on-prem site to the same Azure hub VPN gateway (bash / PowerShell). Reuses `$rg`/`$sharedkey` from the main script and verifies they are set in its prereq check. |
 | [`customer-demo-migration.azcli`](./customer-demo-migration.azcli) | Alternative/demo variant of the main flow (different RG name, project, and route options). |
 | [`bicep/`](./bicep) | **Local trimmed Bicep template** deployed by `deploy.azcli` — hub/spokes, VPN + ER gateways, NSG and test VMs. No empty AzureFirewall/RouteServer subnets. See [`bicep/README.md`](./bicep/README.md). |
 | [`azuredeploy.json`](./azuredeploy.json) | Legacy ARM template kept for reference. The lab now deploys the local Bicep instead. |
 
 ## Prerequisites
 
-- A **Linux shell** (or Cloud Shell / WSL) with the **Azure CLI** and **gcloud** installed:
+You can run this lab on **Linux** (bash `.azcli` scripts) or **Windows** (PowerShell `.ps1` scripts). Each script
+begins with an automated prerequisite check (`check_prereqs` in bash, `Test-Prereqs` in PowerShell) that verifies the
+required tools are installed, that you are logged in to **Azure** (active subscription) and **GCP** (active account /
+project), and — for `vpnsite2` — that `$rg`/`$sharedkey` are set.
+
+- **Linux/bash** — a shell (or Cloud Shell / WSL) with the **Azure CLI** and **gcloud** installed:
   ```bash
   curl -sL https://aka.ms/InstallAzureCLIDeb | bash   # Azure CLI
   # gcloud: https://cloud.google.com/sdk/docs/install#deb
   ```
+  The bash prereq check also expects `curl` and `openssl` (used for the VPN shared key).
+- **Windows/PowerShell** — install the **Azure CLI** and **Google Cloud SDK**:
+  ```powershell
+  winget install --id Microsoft.AzureCLI
+  winget install --id Google.CloudSDK
+  ```
+  The PowerShell scripts use built-in .NET (`Invoke-RestMethod`, `RandomNumberGenerator`) instead of `curl`/`openssl`.
 - An **Azure subscription** and a **GCP project** with billing enabled.
 - For the ExpressRoute step: an account with a connectivity provider (this lab uses **Megaport**) able
   to create Virtual Cross Connects (VXCs) to both Azure and GCP.
-- Authentication:
+- Authentication (both platforms):
   ```bash
   az login
   az account set --subscription "<Name or ID>"
   gcloud init
   ```
+  The prereq check fails fast with actionable `FAIL:` messages if any of the above is missing, so run the top of the
+  script first and resolve any failures before continuing.
 
 ---
 
 ## Step-by-step: what `deploy.azcli` does
+
+> The PowerShell port `deploy.ps1` performs the same steps on Windows; commands below are shown in bash.
+> Both scripts start by running their prerequisite check.
 
 ### 1. Variables
 Sets the Azure resource group, region, your public IP (`mypip`, used to lock down SSH/firewall), and an

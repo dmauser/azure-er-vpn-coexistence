@@ -12,6 +12,32 @@ az account set --subscription <Name or ID of subscription>
 # GCP CLI
 gcloud init
 
+# ===== Prerequisite check (run this first) =====
+check_prereqs() {
+  local ok=0
+  for tool in az gcloud openssl curl; do
+    if command -v "$tool" >/dev/null 2>&1; then echo "OK  : $tool found"
+    else echo "FAIL: $tool not found in PATH"; ok=1; fi
+  done
+  if az account show >/dev/null 2>&1; then
+    echo "OK  : Azure subscription -> $(az account show --query name -o tsv) ($(az account show --query id -o tsv))"
+  else
+    echo "FAIL: not logged in to Azure. Run: az login  (then: az account set --subscription <id>)"; ok=1
+  fi
+  if gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q .; then
+    echo "OK  : gcloud account -> $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+  else
+    echo "FAIL: no active gcloud account. Run: gcloud auth login"; ok=1
+  fi
+  local proj; proj=$(gcloud config get-value project 2>/dev/null)
+  if [ -n "$proj" ] && [ "$proj" != "(unset)" ]; then echo "OK  : gcloud project -> $proj"
+  else echo "WARN: no default gcloud project set (will be set from \$project later, or run: gcloud config set project <id>)"; fi
+  if [ "$ok" -ne 0 ]; then echo ">>> Prerequisites NOT met. Fix the FAIL items above before deploying."; return 1; fi
+  echo ">>> All prerequisites satisfied."
+}
+check_prereqs
+# ===============================================
+
 #Azure Variables
 rg=lab-er-vpn-coexistence #Define your resource group
 location=centralus #Set Region
