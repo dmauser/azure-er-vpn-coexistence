@@ -14,48 +14,9 @@ as a backup path for failover testing.
 
 ## Architecture diagram
 
-![ExpressRoute VPN Coexistence](./media/er-vpn-coexistence.png)
+![ExpressRoute VPN Coexistence](./media/er-vpn-coexistence-diagram.svg)
 
-Editable source for the diagram below lives in [`media/er-vpn-coexistence.mmd`](./media/er-vpn-coexistence.mmd)
-(rendered SVG: [`media/er-vpn-coexistence-diagram.svg`](./media/er-vpn-coexistence-diagram.svg)):
-
-```mermaid
-flowchart LR
-    subgraph GCP["GCP (Simulated On-Premises)"]
-        direction TB
-        GVPC["VPC vpnlab-vpc<br/>192.168.0.0/24"]
-        GVM["Ubuntu VM (e2-micro)"]
-        GVPN["Classic VPN Gateway<br/>(IPsec / IKEv2, static)"]
-        GCR["Cloud Router (ASN 16550)<br/>+ Partner Interconnect VLAN"]
-        GVPC --- GVM
-        GVPC --- GVPN
-        GVPC --- GCR
-    end
-
-    subgraph PROV["Provider (Megaport)"]
-        VXC["Virtual Cross Connects (VXC)"]
-    end
-
-    subgraph AZURE["Azure Hub & Spoke"]
-        direction TB
-        subgraph HUB["Hub VNet Az-Hub 10.0.10.0/24"]
-            subgraph GWSUB["GatewaySubnet 10.0.10.32/27"]
-                AVPN["VPN Gateway<br/>Az-Hub-vpngw (VpnGw1, active-active, BGP)"]
-                AER["ExpressRoute Gateway<br/>Az-Hub-ergw"]
-            end
-            AHVM["Hub VM 10.0.10.4<br/>(subnet1 10.0.10.0/27)"]
-        end
-        SPK1["Spoke1 Az-Spk1<br/>10.0.11.0/24 · VM .4"]
-        SPK2["Spoke2 Az-Spk2<br/>10.0.12.0/24 · VM .4"]
-        HUB --- SPK1
-        HUB --- SPK2
-    end
-
-    GVPN ==>|"S2S VPN over Internet (backup)"| AVPN
-    GCR -->|pairing key| VXC
-    VXC -->|service key| AER
-    GCR ==>|"ExpressRoute Private Peering (preferred)"| AER
-```
+Editable source for this diagram lives in [`media/er-vpn-coexistence.mmd`](./media/er-vpn-coexistence.mmd).
 
 | Side | Components |
 |------|-----------|
