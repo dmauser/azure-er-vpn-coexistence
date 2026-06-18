@@ -22,6 +22,12 @@ resource "azurerm_public_ip" "vpn_gw_pip1" {
   sku                 = "Standard"
   zones               = ["1", "2", "3"]
   tags                = local.tags
+
+  # Azure injects ip_tags (FirstPartyUsage) on some subscriptions; ignore it so it
+  # does not force a destroy/recreate of the gateway public IP on every apply.
+  lifecycle {
+    ignore_changes = [ip_tags]
+  }
 }
 
 resource "azurerm_public_ip" "vpn_gw_pip2" {
@@ -32,6 +38,10 @@ resource "azurerm_public_ip" "vpn_gw_pip2" {
   sku                 = "Standard"
   zones               = ["1", "2", "3"]
   tags                = local.tags
+
+  lifecycle {
+    ignore_changes = [ip_tags]
+  }
 }
 
 resource "azurerm_virtual_network_gateway" "vpn" {
@@ -75,6 +85,10 @@ resource "azurerm_public_ip" "er_gw_pip" {
   allocation_method   = "Static"
   sku                 = "Standard"
   tags                = local.tags
+
+  lifecycle {
+    ignore_changes = [ip_tags]
+  }
 }
 
 resource "azurerm_virtual_network_gateway" "er" {
