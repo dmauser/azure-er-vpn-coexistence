@@ -52,24 +52,29 @@ Editable source for this diagram lives in [`media/er-vpn-coexistence.mmd`](./med
 
 | Requirement | Minimum |
 |---|---|
-| Terraform | ≥ 1.5 |
-| Azure CLI | logged in (`az login`) with Contributor on the target subscription |
-| gcloud CLI | Application Default Credentials configured (`gcloud auth application-default login`) |
+| Terraform | ≥ 1.5 (tested with 1.15.x) |
+| Azure CLI | ≥ 2.5x, authenticated with Contributor on target subscription |
+| gcloud CLI | authenticated with Application Default Credentials |
 | GCP project | existing project ID with billing enabled |
 | Megaport account | **only needed for Step 4 (ExpressRoute/Interconnect)** — optional |
+
+For **detailed install commands** (Windows/Linux/macOS), **auth steps**, and **permission verification**, see **[Requirements & Setup in `terraform/README.md`](./terraform/README.md#requirements--setup)**.
 
 ## Quick Start — Terraform Workflow
 
 The lab uses a **3-apply order** to resolve circular dependencies (Azure must output its VPN gateway IP before GCP can tunnel to it; GCP must output its IP before Azure can create the Local Network Gateway):
 
-**Step 1: Azure base** (VPN gateway, no connection yet)
+**Step 1: Azure base** (VPN + ExpressRoute gateways, no connection yet)
 ```bash
 cd terraform/azure
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: set vm_admin_username, vm_admin_password, restrict_ssh_source_prefix
 # Leave enable_onprem_connection = false (default)
-terraform init && terraform apply
+terraform plan   # Review before applying
+terraform apply
 ```
+⏱ **Gateway provisioning takes ~30–45 minutes.** Terraform may appear to hang on the gateways — this is normal. Do not cancel.
+
 Outputs: `vpn_gateway_public_ip` (GCP will peer here), `vpn_shared_key` (sensitive).
 
 **Step 2: GCP apply** (reads Azure state, creates tunnel)
@@ -77,7 +82,8 @@ Outputs: `vpn_gateway_public_ip` (GCP will peer here), `vpn_shared_key` (sensiti
 cd ../gcp
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: set project, caller_source_ip
-terraform init && terraform apply
+terraform plan   # Review before applying
+terraform apply
 ```
 Outputs: `gcp_vpn_public_ip` (Azure will peer here), `gcp_vpc_cidr`.
 
@@ -85,6 +91,7 @@ Outputs: `gcp_vpn_public_ip` (Azure will peer here), `gcp_vpc_cidr`.
 ```bash
 cd ../azure
 # In terraform.tfvars, set: enable_onprem_connection = true
+terraform plan   # Review before applying
 terraform apply
 ```
 VPN now established. The tunnel should show `Connected` on both sides.
@@ -97,12 +104,13 @@ Set `enable_expressroute = true` in `terraform/azure/terraform.tfvars` and `enab
 ## For full details, verification, and cleanup
 
 → **[See `terraform/README.md`](./terraform/README.md)** for:
-- Prerequisites checklist
-- Detailed step-by-step with Terraform variables
-- VPN connectivity verification commands
-- ExpressRoute + Interconnect provisioning (Megaport integration)
-- Coexistence & failover testing
-- **Cleanup (reverse order: Azure first, then GCP)**
+- **Pre-flight checklist** — what to verify before applying
+- **Requirements & Setup** — install commands, auth steps, permission checks
+- **Detailed step-by-step** with all Terraform variables and examples
+- **Troubleshooting** — common issues and solutions
+- **VPN verification** — connection status, end-to-end ping tests
+- **ExpressRoute + Interconnect** — full Megaport provisioning flow
+- **Coexistence & failover testing** — observe Azure preferring ER over VPN
 
 ---
 

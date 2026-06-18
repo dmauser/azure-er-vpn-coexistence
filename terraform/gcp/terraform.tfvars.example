@@ -6,7 +6,10 @@
 project = "YOUR_GCP_PROJECT_ID"
 
 # Required — your current public IP (no mask).
-# Retrieve it with: curl -4 ifconfig.io
+# Retrieve it with:
+#   Linux/macOS:        curl -4 ifconfig.io
+#   Windows PowerShell: (Invoke-RestMethod -Uri 'https://ifconfig.io')
+# If your IP changes later, update this value and re-apply or the GCP firewall will block SSH/ICMP.
 caller_source_ip = "203.0.113.5"
 
 # Optional — override defaults as needed

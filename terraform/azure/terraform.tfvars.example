@@ -3,7 +3,11 @@
 
 # ── Required (no defaults) ──────────────────────────────────────────────────
 vm_admin_username          = "azureuser"
-vm_admin_password          = "REPLACE_WITH_STRONG_PASSWORD!"   # min 12 chars, upper+lower+digit+special
+vm_admin_password          = "REPLACE_WITH_STRONG_PASSWORD!"   # min 12 chars, upper+lower+digit+special (e.g. Lab@2024Secure!)
+# Get your public IP:
+#   Linux/macOS:        curl -4 ifconfig.io
+#   Windows PowerShell: (Invoke-RestMethod -Uri 'https://ifconfig.io')
+# If your IP changes later, update this value and re-apply or SSH/NSG will block you.
 restrict_ssh_source_prefix = "203.0.113.5/32"                  # your public IP + /32
 
 # ── Optional — defaults match the lab address plan ──────────────────────────
