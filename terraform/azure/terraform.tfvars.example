@@ -1,14 +1,13 @@
-# Copy to terraform.tfvars and fill in the three required values below.
+# Copy to terraform.tfvars and fill in required manual-run values below.
 # NEVER commit terraform.tfvars or *.tfstate* to source control.
 
-# ── Required (no defaults) ──────────────────────────────────────────────────
-vm_admin_username          = "azureuser"
-vm_admin_password          = "REPLACE_WITH_STRONG_PASSWORD!"   # min 12 chars, upper+lower+digit+special (e.g. Lab@2024Secure!)
-# Get your public IP:
-#   Linux/macOS:        curl -4 ifconfig.io
-#   Windows PowerShell: (Invoke-RestMethod -Uri 'https://ifconfig.io')
-# If your IP changes later, update this value and re-apply or SSH/NSG will block you.
-restrict_ssh_source_prefix = "203.0.113.5/32"                  # your public IP + /32
+# ── VM credentials ───────────────────────────────────────────────────────────
+# Keep these commented when deploying with deploy.sh/deploy.ps1. The scripts
+# supply username via -var and password via secure prompt / TF_VAR_vm_admin_password.
+# A terraform.tfvars assignment overrides the environment variable, so only
+# uncomment these for manual `terraform` runs without the scripts.
+# vm_admin_username = "azureuser"
+# vm_admin_password = "REPLACE_WITH_STRONG_PASSWORD!" # 12-72 chars, at least 3 of: upper, lower, digit, special (e.g. Lab@2026Secure!)
 
 # ── Optional — defaults match the lab address plan ──────────────────────────
 # resource_group_name   = "lab-er-vpn-coexistence"
@@ -29,7 +28,7 @@ restrict_ssh_source_prefix = "203.0.113.5/32"                  # your public IP 
 # spoke2_subnet_prefix  = "10.0.12.0/27"
 
 # vm_size               = "Standard_B1s"
-# gateway_sku           = "VpnGw1"
+# gateway_sku           = "VpnGw1AZ"
 # vpn_gateway_generation = "Generation1"
 
 # ── Phase 2: enable VPN tunnel to GCP (on-prem) ─────────────────────────────

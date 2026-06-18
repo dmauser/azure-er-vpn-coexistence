@@ -47,7 +47,7 @@ Tick every item before running Step 1. A missed item is the #1 cause of failed f
 - [ ] **GCP Application Default Credentials** set — `gcloud auth application-default login`
 - [ ] **GCP project** set — `gcloud config set project <PROJECT_ID>`
 - [ ] **Compute Engine API enabled** — `gcloud services enable compute.googleapis.com`
-- [ ] **Your current public IP** known (needed for both tfvars files):
+- [ ] **Your current public IP** known (needed for GCP `caller_source_ip`):
   ```bash
   # Linux / macOS
   curl -4 ifconfig.io
@@ -58,7 +58,7 @@ Tick every item before running Step 1. A missed item is the #1 cause of failed f
   ```
 - [ ] **Strong VM password chosen** — Azure requires ≥ 12 characters with at least 3 of: uppercase, lowercase, digit, special character.
 
-> ⚠️ If your public IP changes between sessions (dynamic ISP, VPN reconnect, etc.), you must update `restrict_ssh_source_prefix` (Azure) and `caller_source_ip` (GCP) and re-apply both modules — otherwise SSH and ICMP will be blocked by the firewall rules.
+> Note: If your public IP changes between sessions (dynamic ISP, VPN reconnect, etc.), update GCP `caller_source_ip` and re-apply the GCP module. Azure VMs have no public IP and no source-IP SSH allow-list.
 
 ---
 
@@ -234,6 +234,104 @@ gcloud projects get-iam-policy <PROJECT_ID> --flatten="bindings[].members" --fil
 
 **Megaport (Step 4 only):** If enabling ExpressRoute/Interconnect, you must have a Megaport account and the ability to create Virtual Cross Connects (VXCs). No specific GCP/Azure permissions are needed beyond the above.
 
+
+## Scripted Deployment (recommended)
+
+Use the root wrapper scripts for the normal lab flow:
+
+| Shell | Script |
+|---|---|
+| Linux / macOS | `./deploy.sh` |
+| Windows PowerShell | `./deploy.ps1` |
+
+The default action is `deploy`, so `./deploy.sh` and `./deploy.sh deploy` are equivalent. The scripts validate prerequisites, collect inputs safely, run the full 3-apply order, and print post-deploy verification commands.
+
+### Subcommands
+
+| Action | Bash | PowerShell | What it does |
+|---|---|---|---|
+| Check only | `check` | `-Check` | Validate prerequisites only. |
+| Deploy | `deploy` | default | Prereqs plus full 3-apply deployment. |
+| Destroy | `destroy` | `-Destroy` | Reverse-order teardown: Azure first, then GCP. |
+
+### Flags
+
+| Bash | PowerShell | Purpose |
+|---|---|---|
+| `--auto-approve` | `-AutoApprove` | Skip Terraform confirmation. |
+| `--expressroute` | `-EnableExpressRoute` | Run optional ExpressRoute/Interconnect stage. Billable. |
+| `--subscription <id>` | `-Subscription <id>` | Set Azure subscription first. |
+| `--project <id>` | `-Project <id>` | Set GCP project first. |
+| `--location <r>` | `-Location <r>` | Azure region. Default: `centralus`. |
+| `--region <r>` | `-Region <r>` | GCP region. Default: `us-central1`. |
+| `--zone <z>` | `-Zone <z>` | GCP zone. Default: `<region>-c`. |
+| `--vm-username <n>` | `-VmUsername <n>` | VM admin username. Default: `azureuser`. |
+| `--vm-password <p>` | `-VmPassword <secure>` | VM admin password. Prompted securely if omitted. |
+| `--caller-ip <ip>` | `-CallerIp <ip>` | Override auto-detected public IP for the GCP SSH firewall. |
+
+### What the scripts do
+
+1. Validate prerequisites:
+   - `terraform`, `az`, and `gcloud` are present and versions are printed.
+   - Azure CLI is logged in and the active subscription is printed.
+   - GCP has an active account, Application Default Credentials, and a project set.
+   - The caller public IP is auto-detected for GCP `caller_source_ip`.
+2. Prompt for inputs when not supplied by flags or environment:
+   - VM admin username, Azure location, GCP region, and GCP zone each show a `[default]`; press Enter to accept.
+   - VM password is collected with no echo and must be at least 12 characters.
+   - The password is passed to Terraform through `TF_VAR_vm_admin_password`, never on the command line, in shell history, or in `ps`; it is cleared on exit.
+3. Run the 3-apply order automatically:
+   - Azure base: `enable_onprem_connection=false`
+   - GCP: creates VPC, VM, VPN gateway, tunnel, route, and firewall
+   - Azure connection: `enable_onprem_connection=true`
+4. Print VPN verification:
+   - Azure VPN connection status
+   - GCP tunnel status
+   - GCP SSH command
+   - Azure Serial Console command
+5. If ExpressRoute is requested, run Step 4:
+   - GCP `enable_interconnect=true`
+   - Azure `enable_expressroute=true`
+   - Print the GCP pairing key and Azure ExpressRoute service key
+   - Stop with Megaport ordering instructions. After the circuit is `Provisioned`, re-run with the ExpressRoute flag to attach/retry the ER gateway connection.
+6. For `destroy`, tear down Azure first, then GCP.
+
+### Examples
+
+Linux / macOS:
+
+```bash
+./deploy.sh check
+./deploy.sh deploy --project my-gcp-project --location eastus2
+./deploy.sh deploy --expressroute --project my-gcp-project
+./deploy.sh destroy --auto-approve --project my-gcp-project
+```
+
+Windows PowerShell:
+
+```powershell
+.\deploy.ps1 -Check
+.\deploy.ps1 -Project my-gcp-project -Location eastus2
+.\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
+.\deploy.ps1 -Destroy -AutoApprove -Project my-gcp-project
+```
+
+Non-interactive / CI usage:
+
+```bash
+export TF_VAR_vm_admin_password='Use-A-Strong-Password-Here'
+./deploy.sh deploy --auto-approve --project my-gcp-project --location centralus --region us-central1 --zone us-central1-c --vm-username azureuser --caller-ip 203.0.113.5
+```
+
+```powershell
+$env:TF_VAR_vm_admin_password = 'Use-A-Strong-Password-Here'
+.\deploy.ps1 -AutoApprove -Project my-gcp-project -Location centralus -Region us-central1 -Zone us-central1-c -VmUsername azureuser -CallerIp 203.0.113.5
+```
+
+---
+
+## Manual / Advanced 3-Apply Walkthrough
+
 ## Step 1 — Azure base apply
 
 ```bash
@@ -241,28 +339,35 @@ cd terraform/azure
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` and set the **three required values**:
+Edit `terraform.tfvars` or pass variables on the command line. Azure now needs only the admin username plus the password; the VMs have no public IP and no source-IP SSH allow-list.
 
 ```hcl
-vm_admin_username          = "azureuser"
-vm_admin_password          = "YourStr0ngP@ssword!"   # min 12 chars, upper+lower+digit+special
-restrict_ssh_source_prefix = "203.0.113.5/32"        # your public IP + /32  ← see below
+vm_admin_username = "azureuser"
+# Prefer TF_VAR_vm_admin_password for the password; do not put it in shell history.
 ```
 
-> **Finding your public IP** (paste as `<IP>/32`):
-> ```bash
-> # Linux / macOS
-> curl -4 ifconfig.io
-> # Windows PowerShell
-> (Invoke-RestMethod -Uri 'https://ifconfig.io')
-> ```
+For manual runs, set the password through the Terraform environment variable:
 
-Leave `enable_onprem_connection = false` (the default). Do **not** set it yet — GCP state doesn't exist yet.
+```bash
+export TF_VAR_vm_admin_password='YourStr0ngP@ssword!'
+```
+
+```powershell
+$env:TF_VAR_vm_admin_password = 'YourStr0ngP@ssword!'
+```
+
+Leave `enable_onprem_connection = false` (the default). Do **not** set it yet - GCP state doesn't exist yet.
 
 ```bash
 terraform init
-terraform plan   # preview what will be created (recommended before every apply)
-terraform apply  # type 'yes' when prompted, or add -auto-approve to skip confirmation
+terraform plan \
+  -var location=centralus \
+  -var vm_admin_username=azureuser \
+  -var enable_onprem_connection=false
+terraform apply \
+  -var location=centralus \
+  -var vm_admin_username=azureuser \
+  -var enable_onprem_connection=false
 ```
 
 > ⏱ **Expect 30–45 minutes** for this first apply. Azure provisions both the VPN Gateway (`Az-Hub-vpngw`) and the ExpressRoute Gateway (`Az-Hub-ergw`) in parallel. Terraform will appear to "hang" on the gateway resources — this is **normal**. Do not cancel the apply; wait for it to complete. Progress can be monitored in the Azure portal under **Virtual network gateways**.  
@@ -317,6 +422,7 @@ Optional overrides (defaults shown):
 terraform init
 terraform plan   # preview — confirms Azure state is readable and tunnel config looks right
 terraform apply  # type 'yes' when prompted
+```
 
 GCP reads `vpn_gateway_public_ip` and `vpn_shared_key` automatically from Azure state. After apply:
 
@@ -343,8 +449,15 @@ enable_onprem_connection = true
 ```
 
 ```bash
-terraform plan   # should show ~2 new resources: LNG + VPN connection
-terraform apply  # type 'yes' when prompted
+terraform plan \
+  -var location=centralus \
+  -var vm_admin_username=azureuser \
+  -var enable_onprem_connection=true
+terraform apply \
+  -var location=centralus \
+  -var vm_admin_username=azureuser \
+  -var enable_onprem_connection=true
+```
 
 This creates:
 - **Local Network Gateway** `lng-onprem-gcp` — GCP's public IP as the on-prem endpoint.
@@ -400,6 +513,147 @@ ping 10.0.12.4   # Az-Spk2 VM
 
 All three should reply within the tunnel.
 
+
+### Accessing the Azure VMs (no public IP)
+
+Azure VMs do not have public IP addresses. Managed boot diagnostics and Serial Console are enabled on all three VMs, so use Azure Serial Console for direct access:
+
+```bash
+az serialconsole connect --name Az-Hub-lxvm --resource-group lab-er-vpn-coexistence
+```
+
+Other VM names: `Az-Spk1-lxvm`, `Az-Spk2-lxvm`.
+
+You can also use the Azure portal: **VM > Help > Serial console**. After the VPN is up, you can reach the Azure VMs from a peer VM across VNet peering or the VPN tunnel. The Azure VMs still have outbound internet through Azure default outbound access, which is required for first-boot `apt` package installation.
+
+---
+
+## Network Test Tools
+
+Every Linux VM in the lab is provisioned with the same network test toolkit at first boot:
+- Azure: the three test VMs receive it through cloud-init `custom_data`.
+- GCP: the on-prem test VM receives it through `metadata_startup_script`.
+
+The installer runs automatically from [`nettools.sh`](https://github.com/dmauser/azure-vm-net-tools/blob/main/script/nettools.sh). Allow a few minutes after VM creation before testing; `apt` must finish installing packages and starting services.
+
+| Tool | What it is for |
+|---|---|
+| `net-tools` | Classic `ifconfig`, `netstat`, and `arp` troubleshooting commands. |
+| `traceroute`, `tcptraceroute` | Path tracing with ICMP or TCP probes. |
+| `nmap` | Port and host scanning. |
+| `hping3` | Crafted TCP, UDP, and ICMP probes. |
+| `iperf3` | Throughput testing between VMs. Run `iperf3 -s` on one VM and `iperf3 -c <peer-private-ip>` on another. Ideal for comparing VPN vs ExpressRoute throughput between Azure and GCP. |
+| `nginx` | Serves the VM hostname at `http://<vm-private-ip>/`. A quick tunnel test is `curl http://<remote-vm-private-ip>/`; the response should be the remote hostname. |
+| `speedtest-cli` | Internet speed test from the VM. |
+| `moreutils` | Extra CLI utilities such as `ts` and `sponge`. |
+
+Access notes:
+- Azure VMs have no public IP. Reach them through Azure Serial Console (`az serialconsole connect ...` or the portal), or from a peer VM across the VNet/VPN.
+- The GCP VM has an external IP, so `gcloud compute ssh vpnlab-vm1 --zone us-central1-c` works directly unless you changed `envname` or `zone`.
+
+End-to-end S2S VPN examples:
+
+```bash
+# From the Azure hub VM, validate reachability to the GCP VM private IP.
+ping <gcp-vm-private-ip>
+curl http://<gcp-vm-private-ip>/
+```
+
+```bash
+# Throughput test between Azure and GCP.
+# On the GCP VM:
+iperf3 -s
+
+# On an Azure VM:
+iperf3 -c <gcp-vm-private-ip>
+```
+
+For the reverse direction, run `iperf3 -s` on an Azure VM and connect from the GCP VM with `iperf3 -c <azure-vm-private-ip>`.
+
+---
+
+
+## Route Inspection
+
+Four root diagnostic scripts dump control-plane route state after deployment. They verify the relevant CLI is installed and authenticated before running.
+
+| Script | What it dumps |
+|---|---|
+| `dump-routes-azure.sh` / `dump-routes-azure.ps1` | Prompts for resource group (default `lab-er-vpn-coexistence`) and lets you select which components to dump: VM effective routes (NICs), ExpressRoute circuit routes for `AzurePrivatePeering` primary/secondary paths, ExpressRoute gateway routes, and VPN gateway routes — each independently selectable via the interactive prompt or `--components nics,circuit,ergw,vpngw` (`AZURE_ROUTE_COMPONENTS`). If a resource is disabled or not provisioned, the script reports that and continues. |
+| `dump-routes-gcp.sh` / `dump-routes-gcp.ps1` | Prompts for project and region (default `us-central1`) and prints a friendly view: a health summary (VPN tunnel up/down, gateway READY, static route present, Cloud Router/BGP state), key/value detail for the VPN tunnel, classic gateway, and tunnel-backed route, and labeled tables for VPC routes (static + dynamic), forwarding rules, and firewall rules. Add `--raw`/`-Raw` for the full gcloud YAML/describe output. If Interconnect/BGP is disabled or a resource is missing, the script reports it and continues. |
+
+Examples:
+
+```bash
+./dump-routes-azure.sh
+./dump-routes-gcp.sh --project my-gcp-project --region us-central1
+```
+
+```powershell
+.\dump-routes-azure.ps1
+.\dump-routes-gcp.ps1 -Project my-gcp-project -Region us-central1
+```
+
+### Azure script — component selection
+
+The Azure script lets you dump any subset of components, either interactively or via `--components` / `-Components` (comma-separated, or `all`):
+
+| Component | Dumps |
+|---|---|
+| `nics` | VM effective routes for each NIC (auto-discovered or `--nics`) |
+| `circuit` | ExpressRoute circuit routes (`AzurePrivatePeering` primary + secondary) |
+| `ergw` | ExpressRoute gateway learned routes (+ advertised with `--advertised`) |
+| `vpngw` | VPN gateway learned routes (+ advertised with `--advertised`) |
+
+| Flag (bash) | Param (PowerShell) | Environment | Default |
+|---|---|---|---|
+| `--components nics,circuit,ergw,vpngw` | `-Components` | `AZURE_ROUTE_COMPONENTS` | prompt (all) |
+| `--resource-group` | `-ResourceGroup` | `AZURE_ROUTE_RG` | `lab-er-vpn-coexistence` |
+| `--circuit-name` | `-CircuitName` | `AZURE_ROUTE_CIRCUIT` | terraform output or `az-hub-er-circuit` |
+| `--er-gateway-name` | `-ErGatewayName` | `AZURE_ROUTE_ER_GATEWAY` | `Az-Hub-ergw` |
+| `--vpn-gateway-name` | `-VpnGatewayName` | `AZURE_ROUTE_VPN_GATEWAY` | `Az-Hub-vpngw` |
+| `--nics` | `-Nics` | `AZURE_ROUTE_NICS` | auto-discovered |
+| `--advertised` | `-Advertised` | `AZURE_ROUTE_ADVERTISED` | off |
+| `--yes` | `-Yes` | `AZURE_ROUTE_YES` | off (interactive) |
+
+```bash
+# Only the VPN gateway, with advertised routes, non-interactive
+./dump-routes-azure.sh --components vpngw --advertised --yes
+# ER gateway + circuit together
+./dump-routes-azure.sh --components ergw,circuit
+```
+
+```powershell
+.\dump-routes-azure.ps1 -Components vpngw -Advertised -Yes
+.\dump-routes-azure.ps1 -Components ergw,circuit
+```
+
+`--advertised` auto-discovers each BGP peer and lists the routes advertised to every peer (both ER and VPN gateways).
+
+### GCP script — friendly view and `--raw`
+
+The GCP script defaults to a friendly summary (tunnel/gateway/route/BGP health, key/value detail, labeled tables). Add `--raw` / `-Raw` for the full `gcloud ... describe` YAML.
+
+| Flag (bash) | Param (PowerShell) | Environment | Default |
+|---|---|---|---|
+| `--project` | `-Project` | `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` | gcloud config |
+| `--region` | `-Region` | `GCP_REGION` | `us-central1` |
+| `--network` | `-Network` | `GCP_NETWORK` | `vpnlab-vpc` |
+| `--router` | `-Router` | `GCP_ROUTER` | `vpnlab-router` |
+| `--tunnel` | `-Tunnel` | `GCP_VPN_TUNNEL` | `vpn-to-azure` |
+| `--gateway` | `-Gateway` | `GCP_VPN_GATEWAY` | `onpremvpn` |
+| `--route` | `-Route` | `GCP_VPN_ROUTE` | `vpn-to-azure-route-1` |
+| `--raw` | `-Raw` | — | off (friendly view) |
+| `--no-prompt` | `-NoPrompt` | — | off (interactive) |
+
+```bash
+./dump-routes-gcp.sh --project my-gcp-project --raw
+```
+
+```powershell
+.\dump-routes-gcp.ps1 -Project my-gcp-project -Raw
+```
+
 ---
 
 ## Step 4 — ExpressRoute + Interconnect (optional, billable)
@@ -426,8 +680,18 @@ enable_expressroute = true
 Apply GCP first (Cloud Router + VLAN attachment), then Azure (ER circuit):
 
 ```bash
-terraform -chdir=terraform/gcp apply
-terraform -chdir=terraform/azure apply
+terraform -chdir=terraform/gcp apply \
+  -var project=<PROJECT_ID> \
+  -var region=us-central1 \
+  -var zone=us-central1-c \
+  -var caller_source_ip=<your-public-ip> \
+  -var enable_interconnect=true
+
+terraform -chdir=terraform/azure apply \
+  -var location=centralus \
+  -var vm_admin_username=azureuser \
+  -var enable_onprem_connection=true \
+  -var enable_expressroute=true
 ```
 
 ### 4b — Retrieve the pairing keys
@@ -452,7 +716,11 @@ terraform -chdir=terraform/azure output -raw expressroute_service_key
 Once the circuit is provisioned, re-run the Azure apply to create the ER gateway connection:
 
 ```bash
-terraform -chdir=terraform/azure apply
+terraform -chdir=terraform/azure apply \
+  -var location=centralus \
+  -var vm_admin_username=azureuser \
+  -var enable_onprem_connection=true \
+  -var enable_expressroute=true
 ```
 
 This attaches circuit `az-hub-er-circuit` to the ER gateway via connection `ER-Connection-to-Onprem` (routing weight 0).
@@ -480,13 +748,20 @@ With both VPN and ExpressRoute up, Azure's route table will prefer ExpressRoute 
 **1. Destroy Azure resources:**
 
 ```bash
-terraform -chdir=terraform/azure destroy
+terraform -chdir=terraform/azure destroy \
+  -var location=centralus \
+  -var vm_admin_username=azureuser \
+  -var enable_onprem_connection=true
 ```
 
 **2. Destroy GCP resources:**
 
 ```bash
-terraform -chdir=terraform/gcp destroy
+terraform -chdir=terraform/gcp destroy \
+  -var project=<PROJECT_ID> \
+  -var region=us-central1 \
+  -var zone=us-central1-c \
+  -var caller_source_ip=<your-public-ip>
 ```
 
 **3. Cancel Megaport VXCs** (if Step 4 was run) via the Megaport portal to stop billing.
@@ -518,11 +793,10 @@ Wait ~60 seconds, then re-run `terraform apply`.
 Azure requires passwords to be **≥ 12 characters** and contain at least **3 of the 4** character categories: uppercase letter, lowercase letter, digit, special character. Example that satisfies all four: `Lab@2024Secure!`.
 
 ### SSH blocked / ping fails after VPN is `Connected`
-Your public IP has changed (e.g., ISP DHCP renewal, VPN reconnect). Update both values and re-apply:
-1. Get your new IP: `curl -4 ifconfig.io` (Linux/macOS) or `(Invoke-RestMethod -Uri 'https://ifconfig.io')` (PowerShell)
-2. In `terraform/azure/terraform.tfvars`: update `restrict_ssh_source_prefix = "<new-ip>/32"`
-3. In `terraform/gcp/terraform.tfvars`: update `caller_source_ip = "<new-ip>"`
-4. `terraform apply` in both directories.
+Your public IP only affects the GCP SSH firewall. Azure VM access uses Serial Console, not public SSH.
+1. Get your new IP: `curl -4 ifconfig.io` (Linux/macOS) or `(Invoke-RestMethod -Uri 'https://ifconfig.io')` (PowerShell).
+2. In `terraform/gcp/terraform.tfvars`: update `caller_source_ip = "<new-ip>"`.
+3. Re-run `terraform apply` in `terraform/gcp`.
 
 ### Gateways appear "stuck" during Step 1 apply
 This is **expected behaviour**. Azure VPN Gateway + ExpressRoute Gateway each take 20–30 minutes to provision. Terraform will hold on `azurerm_virtual_network_gateway.vpn: Still creating...` — do not cancel. Total first-apply time is 30–45 minutes. You can monitor progress in the Azure portal under **Virtual network gateways**.
@@ -532,6 +806,50 @@ The Megaport VXC has not been ordered or has not activated yet. The Azure ER cir
 
 ### Destroy fails — resource dependencies or GCP dangling reference
 Always destroy in **reverse order**: Azure first, then GCP. If you accidentally destroyed GCP first, the Azure Local Network Gateway and VPN Connection may be orphaned. Import them back with `terraform import` or delete them manually in the Azure portal before re-running `terraform destroy` on Azure.
+
+### Restricted subscriptions: Standard public IP gate
+
+**Why Standard PIPs are required:** The lab uses an active-active VPN gateway with BGP, which requires Standard SKU public IPs. Azure retired Basic SKU public IPs on 2025-09-30 and they never supported active-active or BGP anyway.
+
+**Symptom:** `terraform apply` succeeds for the VM and network resources but then fails ~20 minutes in at `azurerm_public_ip.vpn_gw_pip1` with an error like:
+```
+SubscriptionNotRegisteredForFeature ... Microsoft.Network/AllowBringYourOwnPublicIpAddress
+```
+
+**Pre-flight detection:** The `deploy.sh` / `deploy.ps1` scripts now probe for this condition before any `terraform apply` runs. If detected, the script exits immediately with full instructions.
+
+**What the feature actually does:** Despite the misleading name, `Microsoft.Network/AllowBringYourOwnPublicIpAddress` is NOT about bringing your own IP prefix. It is simply a subscription-level gate that Microsoft enables by default on most subscriptions but leaves locked on certain restricted or FDPO subscriptions. Registering it unlocks normal Azure-allocated Standard public IPs — nothing else changes.
+
+**Fix (one-time, per subscription):**
+```bash
+az feature register --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress
+az feature show --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress --query properties.state -o tsv   # wait until: Registered
+az provider register --namespace Microsoft.Network
+```
+Then re-run the deploy script. Registration typically takes 5-15 minutes.
+
+**Alternative:** Use an unrestricted Azure subscription where Standard public IPs work without any feature registration.
+
+**Bypass the pre-flight check** (if you already know the subscription is unblocked and want to skip the ~30-second probe):
+```bash
+SKIP_PIP_PRECHECK=1 ./deploy.sh deploy ...
+```
+```powershell
+$env:SKIP_PIP_PRECHECK=1; .\deploy.ps1 ...
+```
+
+### VPN gateway SKU: AZ SKUs required (NonAzSkusNotAllowedForVPNGateway)
+
+**Why AZ SKUs are required:** Azure has consolidated VPN gateway SKUs and no longer allows non-AZ SKUs (VpnGw1–VpnGw5). All new VPN gateways must use the AZ-zone-redundant variants: VpnGw1AZ–VpnGw5AZ.
+
+**Symptom:** `terraform apply` fails at `azurerm_virtual_network_gateway.vpn` with:
+```
+400 NonAzSkusNotAllowedForVPNGateway: VpnGw1-5 non-AZ SKUs are no longer supported for VPN gateways. Only VpnGw1-5AZ SKUs can be created going forward.
+```
+
+**Lab default:** This lab defaults to `gateway_sku = "VpnGw1AZ"` in `variables.tf`, and the input validation enforces the AZ pattern: `^VpnGw[1-5]AZ$`. If you change the SKU, it must be one of `VpnGw1AZ`, `VpnGw2AZ`, `VpnGw3AZ`, `VpnGw4AZ`, or `VpnGw5AZ`.
+
+**Zone-redundant PIPs required:** AZ SKUs require zone-redundant Standard public IPs. The lab automatically sets `zones = ["1","2","3"]` on the VPN gateway public IPs (`vpn_gw_pip1` and `vpn_gw_pip2`) in `gateways.tf`. Never omit or reduce the zones list when using AZ gateway SKUs.
 
 ---
 

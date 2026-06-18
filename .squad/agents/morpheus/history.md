@@ -18,3 +18,27 @@ Key observations:
 3. The GCP `terraform_remote_state.azure` is intentionally ungated (always reads Azure state). This is correct because the 3-apply order guarantees Azure state exists before any GCP operation. Gating it would add complexity for no benefit.
 4. Using `one()` for conditional outputs (ER service key, circuit name) is the idiomatic Terraform ≥1.5 approach — produces `null` when count=0, clean single value when count=1.
 5. Single VPN connection (not dual) matches the Classic VPN single-IP constraint on the GCP side. If a future revision moves to HA VPN, a second connection resource will be needed.
+
+### 2026-06-17 — Final Docs Review (First-Time-User Walkthrough)
+
+**Verdict: APPROVED** (with two minor fixes applied in-place).
+
+Reviewed root `README.md`, `terraform/README.md`, both `terraform.tfvars.example` files, and spot-checked every `.tf` file for resource/output/variable name alignment.
+
+Findings:
+1. **Two missing code-fence closers** in `terraform/README.md` (Steps 2 and 3 bash blocks were unclosed, causing downstream markdown to render as code). Fixed in-place.
+2. All resource names in verification commands match the Terraform code: `lab-er-vpn-coexistence`, `Azure-to-OnpremGCP`, `lng-onprem-gcp`, `vpn-to-azure`, `vpnlab-vm1`, `az-hub-er-circuit`, `ER-Connection-to-Onprem`, `Az-Hub-vpngw`, `Az-Hub-ergw`.
+3. All output names (`vpn_gateway_public_ip`, `vpn_shared_key`, `gcp_vpn_public_ip`, `gcp_vpc_cidr`, `expressroute_service_key`, `interconnect_pairing_key`) verified against `outputs.tf` in both modules.
+4. Pre-flight checklist, gateway-timing warning, SSH instructions, troubleshooting section, and cleanup order are all present and correct.
+5. Both configs pass `terraform validate`.
+6. The 3-apply walkthrough is complete end-to-end — a first-time user has every command and value needed.
+
+- 2026-06-17: Reviewed deploy.sh/ps1 and route dump scripts. Caught a secret safety gap in bash where TF_VAR_vm_admin_password was unset at the end of the script instead of in an EXIT trap, meaning it would leak if the script failed. Enforced strict trap hygiene for environment variable secrets.
+
+### 2026-06-17 — Session finalization (Scribe: decisions merged, orchestration logs)
+
+- Terraform revamp finalized: all three gates passed (Terraform Revamp Verdict, Documentation Final Review, Script Revamp Verdict)
+- High-severity finding (deploy.sh trap) enforced; Coordinator implemented fix — issue RESOLVED
+- All 14 decisions merged into `.squad/decisions.md` from inbox; inbox files deleted
+- Orchestration log written: 2026-06-17T20_47_00-morpheus.md
+- Ready for team commit: Terraform + docs + scripts all validated and secure
