@@ -1,0 +1,40 @@
+# Copy to terraform.tfvars and fill in the three required values below.
+# NEVER commit terraform.tfvars or *.tfstate* to source control.
+
+# ── Required (no defaults) ──────────────────────────────────────────────────
+vm_admin_username          = "azureuser"
+vm_admin_password          = "REPLACE_WITH_STRONG_PASSWORD!"   # min 12 chars, upper+lower+digit+special
+restrict_ssh_source_prefix = "203.0.113.5/32"                  # your public IP + /32
+
+# ── Optional — defaults match the lab address plan ──────────────────────────
+# resource_group_name   = "lab-er-vpn-coexistence"
+# location              = "centralus"
+
+# hub_name              = "Az-Hub"
+# spoke1_name           = "Az-Spk1"
+# spoke2_name           = "Az-Spk2"
+
+# hub_address_space     = "10.0.10.0/24"
+# hub_subnet_prefix     = "10.0.10.0/27"
+# gateway_subnet_prefix = "10.0.10.32/27"
+
+# spoke1_address_space  = "10.0.11.0/24"
+# spoke1_subnet_prefix  = "10.0.11.0/27"
+
+# spoke2_address_space  = "10.0.12.0/24"
+# spoke2_subnet_prefix  = "10.0.12.0/27"
+
+# vm_size               = "Standard_B1s"
+# gateway_sku           = "VpnGw1"
+# vpn_gateway_generation = "Generation1"
+
+# ── Phase 2: enable VPN tunnel to GCP (on-prem) ─────────────────────────────
+# Requires GCP Terraform state deployed first.
+# enable_onprem_connection = true
+# gcp_remote_state_path    = "../gcp/terraform.tfstate"   # path to Niobe's state
+
+# ── Phase 3: enable ExpressRoute circuit + ER gateway connection ─────────────
+# enable_expressroute            = true
+# express_route_peering_location = "Chicago"
+# express_route_provider         = "Megaport"
+# express_route_bandwidth_mbps   = 50

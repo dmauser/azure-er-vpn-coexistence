@@ -1,0 +1,18 @@
+{
+  "universe_usage_history": [
+    { "universe": "The Matrix", "assigned_at": "2026-06-17", "assignment_id": "asg-2026-06-17-matrix-01", "agent_count": 5 }
+  ],
+  "assignment_cast_snapshots": {
+    "asg-2026-06-17-matrix-01": {
+      "universe": "The Matrix",
+      "created_at": "2026-06-17",
+      "agents": {
+        "morpheus": "Lead / Architect",
+        "trinity": "Azure Terraform Engineer",
+        "niobe": "GCP Terraform Engineer",
+        "tank": "Connectivity / Integration Engineer",
+        "switch": "Docs / DevRel"
+      }
+    }
+  }
+}

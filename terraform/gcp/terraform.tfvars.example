@@ -1,0 +1,24 @@
+# -----------------------------------------------------------------------
+# terraform.tfvars — copy to terraform.tfvars and fill in required values
+# -----------------------------------------------------------------------
+
+# Required — your GCP project ID
+project = "YOUR_GCP_PROJECT_ID"
+
+# Required — your current public IP (no mask).
+# Retrieve it with: curl -4 ifconfig.io
+caller_source_ip = "203.0.113.5"
+
+# Optional — override defaults as needed
+# region                  = "us-central1"
+# zone                    = "us-central1-c"
+# vpc_range               = "192.168.0.0/24"
+# envname                 = "vpnlab"
+
+# Path to the Azure Terraform state file (written by terraform/azure/).
+# Adjust if you changed the Azure module root or state file name.
+# azure_remote_state_path = "../azure/terraform.tfstate"
+
+# Set to true ONLY after the Classic VPN is up and you are ready to order
+# the Partner Interconnect cross-connect through your provider (e.g. Megaport).
+# enable_interconnect = false

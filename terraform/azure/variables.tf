@@ -1,0 +1,168 @@
+# ---------------------------------------------------------------------------
+# Resource group + region
+# ---------------------------------------------------------------------------
+variable "resource_group_name" {
+  description = "Name of the Azure resource group"
+  type        = string
+  default     = "lab-er-vpn-coexistence"
+}
+
+variable "location" {
+  description = "Azure region for all resources"
+  type        = string
+  default     = "centralus"
+}
+
+# ---------------------------------------------------------------------------
+# VNet name prefixes
+# ---------------------------------------------------------------------------
+variable "hub_name" {
+  description = "Hub VNet name prefix (e.g. Az-Hub)"
+  type        = string
+  default     = "Az-Hub"
+}
+
+variable "spoke1_name" {
+  description = "Spoke 1 VNet name prefix (e.g. Az-Spk1)"
+  type        = string
+  default     = "Az-Spk1"
+}
+
+variable "spoke2_name" {
+  description = "Spoke 2 VNet name prefix (e.g. Az-Spk2)"
+  type        = string
+  default     = "Az-Spk2"
+}
+
+# ---------------------------------------------------------------------------
+# Address plan — must not overlap; defaults match deploy.azcli
+# ---------------------------------------------------------------------------
+variable "hub_address_space" {
+  description = "Hub VNet address space"
+  type        = string
+  default     = "10.0.10.0/24"
+}
+
+variable "hub_subnet_prefix" {
+  description = "Hub VM subnet (subnet1) prefix"
+  type        = string
+  default     = "10.0.10.0/27"
+}
+
+variable "gateway_subnet_prefix" {
+  description = "GatewaySubnet prefix (shared by VPN + ExpressRoute gateways)"
+  type        = string
+  default     = "10.0.10.32/27"
+}
+
+variable "spoke1_address_space" {
+  description = "Spoke 1 VNet address space"
+  type        = string
+  default     = "10.0.11.0/24"
+}
+
+variable "spoke1_subnet_prefix" {
+  description = "Spoke 1 VM subnet (subnet1) prefix"
+  type        = string
+  default     = "10.0.11.0/27"
+}
+
+variable "spoke2_address_space" {
+  description = "Spoke 2 VNet address space"
+  type        = string
+  default     = "10.0.12.0/24"
+}
+
+variable "spoke2_subnet_prefix" {
+  description = "Spoke 2 VM subnet (subnet1) prefix"
+  type        = string
+  default     = "10.0.12.0/27"
+}
+
+# ---------------------------------------------------------------------------
+# VM credentials (required — no defaults)
+# ---------------------------------------------------------------------------
+variable "vm_admin_username" {
+  description = "Admin username for all Linux VMs"
+  type        = string
+}
+
+variable "vm_admin_password" {
+  description = "Admin password for all Linux VMs"
+  type        = string
+  sensitive   = true
+}
+
+variable "vm_size" {
+  description = "Azure VM size for all test VMs"
+  type        = string
+  default     = "Standard_B1s"
+}
+
+# ---------------------------------------------------------------------------
+# NSG: restrict SSH to caller IP (required — no default)
+# ---------------------------------------------------------------------------
+variable "restrict_ssh_source_prefix" {
+  description = "Source IP/CIDR allowed to SSH into VMs (e.g. 203.0.113.5/32). Use * to allow any (not recommended)."
+  type        = string
+}
+
+# ---------------------------------------------------------------------------
+# VPN Gateway
+# ---------------------------------------------------------------------------
+variable "gateway_sku" {
+  description = "VPN gateway SKU"
+  type        = string
+  default     = "VpnGw1"
+}
+
+variable "vpn_gateway_generation" {
+  description = "VPN gateway generation (Generation1 or Generation2)"
+  type        = string
+  default     = "Generation1"
+}
+
+# ---------------------------------------------------------------------------
+# Phase toggles
+# ---------------------------------------------------------------------------
+variable "enable_onprem_connection" {
+  description = "Phase-2 toggle: creates Local Network Gateway (lng-onprem-gcp) + VPN connection (Azure-to-OnpremGCP). Requires GCP state at gcp_remote_state_path."
+  type        = bool
+  default     = false
+}
+
+variable "enable_expressroute" {
+  description = "Phase-3 toggle: creates ExpressRoute circuit (az-hub-er-circuit) + ER gateway connection (ER-Connection-to-Onprem)."
+  type        = bool
+  default     = false
+}
+
+# ---------------------------------------------------------------------------
+# ExpressRoute circuit parameters
+# ---------------------------------------------------------------------------
+variable "express_route_peering_location" {
+  description = "ExpressRoute peering location"
+  type        = string
+  default     = "Chicago"
+}
+
+variable "express_route_provider" {
+  description = "ExpressRoute service provider name"
+  type        = string
+  default     = "Megaport"
+}
+
+variable "express_route_bandwidth_mbps" {
+  description = "ExpressRoute circuit bandwidth in Mbps"
+  type        = number
+  default     = 50
+}
+
+# ---------------------------------------------------------------------------
+# GCP remote state path (consumed when enable_onprem_connection = true)
+# ---------------------------------------------------------------------------
+variable "gcp_remote_state_path" {
+  description = "Relative path to the GCP Terraform local state file. Used to read gcp_vpn_public_ip and gcp_vpc_cidr."
+  type        = string
+  default     = "../gcp/terraform.tfstate"
+}
