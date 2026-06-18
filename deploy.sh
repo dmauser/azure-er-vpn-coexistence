@@ -168,6 +168,11 @@ check_prereqs() {
   fi
   ok "$(gcloud --version 2>/dev/null | head -1)"
 
+  local az_tfvars="${AZURE_DIR}/terraform.tfvars"
+  if [[ -f "${az_tfvars}" ]] && grep -Eq '^[[:space:]]*vm_admin_password[[:space:]]*=' "${az_tfvars}"; then
+    fail "terraform/azure/terraform.tfvars sets vm_admin_password, which OVERRIDES the secure password prompt (a terraform.tfvars value beats the TF_VAR_vm_admin_password environment variable). Comment out that line in terraform/azure/terraform.tfvars and re-run."
+  fi
+
   step "Azure authentication"
 
   if [[ -n "${SUBSCRIPTION}" ]]; then

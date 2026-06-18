@@ -207,6 +207,11 @@ gcloud not found.
     $gcloudVer = (& gcloud --version 2>$null)[0]
     Write-Ok $gcloudVer
 
+    $azTfvars = Join-Path $AzureDir 'terraform.tfvars'
+    if ((Test-Path $azTfvars) -and (Select-String -Path $azTfvars -Pattern '^\s*vm_admin_password\s*=' -Quiet)) {
+        Write-Fail "terraform/azure/terraform.tfvars sets vm_admin_password, which OVERRIDES the secure password prompt (a terraform.tfvars value beats the TF_VAR_vm_admin_password environment variable). Comment out that line in terraform/azure/terraform.tfvars and re-run."
+    }
+
     # -- Azure auth -----------------------------------------------------------
     Write-Step 'Azure authentication'
 
