@@ -778,6 +778,19 @@ SKIP_PIP_PRECHECK=1 ./deploy.sh deploy ...
 $env:SKIP_PIP_PRECHECK=1; .\deploy.ps1 ...
 ```
 
+### VPN gateway SKU: AZ SKUs required (NonAzSkusNotAllowedForVPNGateway)
+
+**Why AZ SKUs are required:** Azure has consolidated VPN gateway SKUs and no longer allows non-AZ SKUs (VpnGw1–VpnGw5). All new VPN gateways must use the AZ-zone-redundant variants: VpnGw1AZ–VpnGw5AZ.
+
+**Symptom:** `terraform apply` fails at `azurerm_virtual_network_gateway.vpn` with:
+```
+400 NonAzSkusNotAllowedForVPNGateway: VpnGw1-5 non-AZ SKUs are no longer supported for VPN gateways. Only VpnGw1-5AZ SKUs can be created going forward.
+```
+
+**Lab default:** This lab defaults to `gateway_sku = "VpnGw1AZ"` in `variables.tf`, and the input validation enforces the AZ pattern: `^VpnGw[1-5]AZ$`. If you change the SKU, it must be one of `VpnGw1AZ`, `VpnGw2AZ`, `VpnGw3AZ`, `VpnGw4AZ`, or `VpnGw5AZ`.
+
+**Zone-redundant PIPs required:** AZ SKUs require zone-redundant Standard public IPs. The lab automatically sets `zones = ["1","2","3"]` on the VPN gateway public IPs (`vpn_gw_pip1` and `vpn_gw_pip2`) in `gateways.tf`. Never omit or reduce the zones list when using AZ gateway SKUs.
+
 ---
 
 ## Cross-State Contract Reference

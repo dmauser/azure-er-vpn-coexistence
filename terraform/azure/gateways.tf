@@ -13,12 +13,14 @@ resource "azurerm_subnet" "gateway" {
 # VPN Gateway — active-active, BGP, two public IPs (pip1 / pip2)
 # Names match bicep/main.bicep and deploy.azcli (Az-Hub-vpngw-pip1, etc.)
 # ---------------------------------------------------------------------------
+# Zone-redundant Standard public IPs — required by the AZ VPN gateway SKU (VpnGw1AZ+).
 resource "azurerm_public_ip" "vpn_gw_pip1" {
   name                = "${var.hub_name}-vpngw-pip1"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
   allocation_method   = "Static"
   sku                 = "Standard"
+  zones               = ["1", "2", "3"]
   tags                = local.tags
 }
 
@@ -28,6 +30,7 @@ resource "azurerm_public_ip" "vpn_gw_pip2" {
   resource_group_name = azurerm_resource_group.this.name
   allocation_method   = "Static"
   sku                 = "Standard"
+  zones               = ["1", "2", "3"]
   tags                = local.tags
 }
 

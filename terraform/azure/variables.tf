@@ -103,9 +103,14 @@ variable "vm_size" {
 # VPN Gateway
 # ---------------------------------------------------------------------------
 variable "gateway_sku" {
-  description = "VPN gateway SKU"
+  description = "VPN gateway SKU. Must be an AZ SKU (VpnGw1AZ-VpnGw5AZ); Azure no longer allows non-AZ VpnGw1-5 SKUs for new VPN gateways."
   type        = string
-  default     = "VpnGw1"
+  default     = "VpnGw1AZ"
+
+  validation {
+    condition     = can(regex("^VpnGw[1-5]AZ$", var.gateway_sku))
+    error_message = "gateway_sku must be an AZ SKU (VpnGw1AZ, VpnGw2AZ, VpnGw3AZ, VpnGw4AZ, or VpnGw5AZ). Non-AZ SKUs (VpnGw1-5) are no longer supported by Azure for new VPN gateways."
+  }
 }
 
 variable "vpn_gateway_generation" {
