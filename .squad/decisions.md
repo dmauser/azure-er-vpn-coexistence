@@ -316,6 +316,25 @@ Dump ExpressRoute circuit routes, VM effective routes, and ER gateway learned ro
 
 ---
 
+### 15. Trinity — Azure VM Admin Password Complexity Enforcement
+
+**Date:** 2026-06-17  
+**Author:** Trinity (Azure TF Engineer)  
+**Status:** COMPLETED
+
+**Decision:**
+Root deploy wrappers (`deploy.sh` and `deploy.ps1`) now enforce the Azure VM administrator password rule before Terraform runs:
+- Password length: 12-72 characters
+- Complexity: at least 3 of 4 categories (lowercase, uppercase, digit, special)
+
+**Interactive Path:** Both scripts prompt for password entry and require second confirmation prompt. Entry loop restarts if the two values do not match.
+
+**Non-Interactive Paths:** Same complexity rule applied to `--vm-password` / `-VmPassword` flag and pre-set `TF_VAR_vm_admin_password` environment variable without prompting for confirmation.
+
+**Rationale:** Azure's enforced policy prevents deploy-time failures when passwords fail validation. Early validation (before Terraform) gives users fast feedback and clear error messages.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

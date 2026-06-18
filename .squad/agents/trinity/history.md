@@ -28,6 +28,7 @@
 - **Route-dump approach:** Added root scripts `dump-routes-azure.sh` and `dump-routes-azure.ps1`. They verify `az`, show the active subscription, prompt for defaults while accepting flags/env for automation, auto-discover NICs in the RG, and gracefully continue when ExpressRoute resources are disabled or unprovisioned.
 - **VM nettools cloud-init:** Added shared `local.nettools_cloud_init` and assigned it to all three Linux VMs via `custom_data = base64encode(local.nettools_cloud_init)`. It installs `net-tools`, `traceroute`, `tcptraceroute`, `nmap`, `hping3`, `iperf3`, `nginx`, `speedtest-cli`, and `moreutils`, then writes `hostname` to `/var/www/html/index.html`; apt relies on Azure default outbound access because the VMs have no public IP.
 - **deploy.sh secret cleanup:** Added an `EXIT` trap immediately after exporting `TF_VAR_vm_admin_password` so the Terraform VM password is cleared even if `set -e` aborts on apply failure.
+- **deploy password handling:** `deploy.sh` and `deploy.ps1` now enforce Azure's 12-72 character / 3-of-4 complexity rule for interactive, parameter, and environment passwords; interactive entry also requires confirmation.
 - **Exact az commands used by the scripts:**
   - `az network express-route list-route-table --resource-group <rg> --name <circuit> --peering-name AzurePrivatePeering --path primary -o table`
   - `az network express-route list-route-table --resource-group <rg> --name <circuit> --peering-name AzurePrivatePeering --path secondary -o table`
