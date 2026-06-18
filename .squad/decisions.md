@@ -353,6 +353,99 @@ Prevents silent password override and makes the precedence rule explicit to user
 
 ---
 
+### 17. Trinity — VPN Gateway AZ SKU Consolidation Decision
+
+**Date:** 2026-06-17  
+**Author:** Trinity (Azure Terraform Engineer)  
+**Status:** COMPLETED
+
+**Context:**
+Live deployment failed with a new Azure error:
+```
+400 NonAzSkusNotAllowedForVPNGateway: VpnGw1-5 non-AZ SKUs are no longer supported for VPN gateways. Only VpnGw1-5AZ SKUs can be created going forward.
+```
+
+Azure has consolidated VPN gateway SKUs and no longer accepts the legacy non-AZ variants (VpnGw1–VpnGw5). Only zone-redundant AZ SKUs (VpnGw1AZ–VpnGw5AZ) are allowed.
+
+**Decision:**
+1. **Default gateway_sku changed to VpnGw1AZ** in `terraform/azure/variables.tf`.
+2. **Input validation enforces AZ pattern** with regex `^VpnGw[1-5]AZ$` to prevent legacy SKU selection.
+3. **Zone-redundant Standard PIPs required** by AZ SKUs — `terraform/azure/gateways.tf` sets `zones = ["1","2","3"]` on `vpn_gw_pip1` and `vpn_gw_pip2`.
+4. **Example file updated** — `terraform/azure/terraform.tfvars.example` changed to `VpnGw1AZ`.
+5. **Documentation added** — New troubleshooting subsection in `terraform/README.md` documents the error, AZ-only requirement, zone-redundant PIP configuration, and validation rules.
+
+**Verification:**
+- Live deployment tested: Azure accepted `VpnGw1AZ` create with zone-redundant Standard PIPs.
+- `terraform validate` passes.
+- No backward compatibility — legacy scripts using non-AZ SKUs will fail with the same Azure error; users must update or use deploy wrappers, which now use the correct AZ default.
+
+**Files Modified:**
+- `terraform/azure/variables.tf` — gateway_sku default, validation regex
+- `terraform/azure/gateways.tf` — zones on VPN gateway PIPs
+- `terraform/azure/terraform.tfvars.example` — SKU example
+- `terraform/README.md` — new troubleshooting subsection
+
+---
+
+### 18. Morpheus — Azure VPN AZ SKU Hotfix Review
+
+**Date:** 2026-06-17  
+**Reviewer:** Morpheus (Lead / Architect)  
+**Scope:** `terraform/azure/variables.tf`, `terraform/azure/gateways.tf`, `terraform/azure/terraform.tfvars.example`, `terraform/README.md`
+
+**Validation:**
+```powershell
+terraform -chdir=terraform\azure validate
+```
+Result: `Success! The configuration is valid.`
+
+**Findings:**
+1. `gateway_sku` default is correctly updated to `VpnGw1AZ`.
+2. Validation regex `^VpnGw[1-5]AZ$` is correct for the intended Azure-supported range and is not overly restrictive for `VpnGw1AZ` through `VpnGw5AZ`.
+3. Zone-redundant Standard PIPs are applied only to VPN gateway PIPs (`vpn_gw_pip1`, `vpn_gw_pip2`). The ExpressRoute gateway PIP (`er_gw_pip`) remains unchanged.
+4. README troubleshooting note accurately describes the Azure error, the required AZ SKU fix, and the required zone-redundant VPN gateway PIPs.
+5. No fresh-deployment `terraform plan/apply` correctness issue found by code reading or validation.
+
+**Verdict:** APPROVE
+
+---
+
+### 19. Trinity — Standard PIP Gate — Detection + Guidance in Deploy Scripts
+
+**Date:** 2026-06-17  
+**Author:** Trinity (Azure Terraform Engineer)  
+**Status:** COMPLETED
+
+**Context:**
+The DMAUSER-FDPO subscription requires the provider feature `Microsoft.Network/AllowBringYourOwnPublicIpAddress` before Azure allocates any Standard SKU public IP. Without it, `terraform apply` creates the VM successfully and then fails ~20 minutes later at `azurerm_public_ip.vpn_gw_pip1` with `SubscriptionNotRegisteredForFeature`.
+
+**Decisions:**
+1. **Keep Standard SKU public IPs (gateways.tf unchanged).**
+   Active-active VPN gateways with BGP require Standard SKU. Basic SKU was retired 2025-09-30 and never supported active-active/BGP.
+
+2. **Do NOT auto-register the feature.**
+   The user explicitly does not want automation touching subscription-level provider features. The scripts detect, explain, and hand the user the exact commands.
+
+3. **Add pre-flight probe to both deploy scripts.**
+   A new step "Azure Standard public IP capability" is inserted in `Test-Prereqs` (deploy.ps1) and `check_prereqs` (deploy.sh) immediately after Azure subscription confirmation and before GCP auth. Logic:
+   - Bypass if `SKIP_PIP_PRECHECK` env var is set.
+   - Create a temp resource group `tfpreflight-pip-<random>` in eastus.
+   - Attempt `az network public-ip create --sku Standard`.
+   - Always delete the temp RG (no-wait, best-effort).
+   - On success: print ok.
+   - On failure with AllowBringYourOwnPublicIpAddress/SubscriptionNotRegisteredForFeature: exit with full explanation + the three fix commands.
+   - On any other failure: exit with the raw error.
+
+4. **Add troubleshooting subsection to terraform/README.md.**
+   Section "Restricted subscriptions: Standard public IP gate" added to the Troubleshooting / Common Pitfalls section, covering symptom, cause, fix, and SKIP_PIP_PRECHECK bypass.
+
+**Files Changed:**
+- `deploy.ps1` — new step block in `Test-Prereqs`
+- `deploy.sh` — new step block in `check_prereqs`
+- `terraform/README.md` — new troubleshooting subsection
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
