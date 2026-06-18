@@ -100,14 +100,6 @@ variable "vm_size" {
 }
 
 # ---------------------------------------------------------------------------
-# NSG: restrict SSH to caller IP (required — no default)
-# ---------------------------------------------------------------------------
-variable "restrict_ssh_source_prefix" {
-  description = "Source IP/CIDR allowed to SSH into VMs (e.g. 203.0.113.5/32). Use * to allow any (not recommended)."
-  type        = string
-}
-
-# ---------------------------------------------------------------------------
 # VPN Gateway
 # ---------------------------------------------------------------------------
 variable "gateway_sku" {

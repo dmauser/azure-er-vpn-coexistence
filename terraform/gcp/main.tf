@@ -10,6 +10,15 @@ data "terraform_remote_state" "azure" {
   }
 }
 
+locals {
+  nettools_startup = <<-EOT
+    #!/bin/bash
+    apt-get update -y && apt-get upgrade -y
+    apt-get install -y net-tools traceroute tcptraceroute nmap hping3 iperf3 nginx speedtest-cli moreutils
+    hostname > /var/www/html/index.html
+  EOT
+}
+
 # ---------------------------------------------------------------------------
 # VPC — custom-mode, REGIONAL routing, MTU 1460 (matches gcloud deploy step)
 # ---------------------------------------------------------------------------
@@ -61,9 +70,10 @@ resource "google_compute_firewall" "allow_rfc1918_iap" {
 # Mirrors: gcloud compute instances create <envname>-vm1 ...
 # ---------------------------------------------------------------------------
 resource "google_compute_instance" "vm1" {
-  name         = "${var.envname}-vm1"
-  machine_type = "e2-micro"
-  zone         = var.zone
+  name                    = "${var.envname}-vm1"
+  machine_type            = "e2-micro"
+  zone                    = var.zone
+  metadata_startup_script = local.nettools_startup
 
   boot_disk {
     initialize_params {

@@ -8,7 +8,7 @@ Terraform ≥ 1.5 · provider `azurerm ~> 3.100` · local state (no remote backe
 ```bash
 cd terraform/azure
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars — fill in vm_admin_username, vm_admin_password, restrict_ssh_source_prefix
+# Edit terraform.tfvars — fill in vm_admin_username and vm_admin_password
 terraform init
 terraform plan
 terraform apply
@@ -22,7 +22,7 @@ terraform apply
 | `variables.tf` | All input variables (see table below) |
 | `main.tf` | Resource group, NSG, hub VNet, 2 spoke VNets, subnets, NSG associations, bidirectional peerings |
 | `gateways.tf` | GatewaySubnet, VPN GW (active-active BGP, 2× public IPs), ExpressRoute GW (Standard) |
-| `vm.tf` | 3 Ubuntu 22.04 LTS test VMs — one per VNet; names match `deploy.azcli` NIC refs |
+| `vm.tf` | 3 private-only Ubuntu 22.04 LTS test VMs — one per VNet; names match lab NIC refs |
 | `vpn.tf` | Random PSK, GCP remote-state read, LNG `lng-onprem-gcp`, connection `Azure-to-OnpremGCP` |
 | `expressroute.tf` | ER circuit `az-hub-er-circuit`, connection `ER-Connection-to-Onprem` |
 | `outputs.tf` | Outputs consumed by Tank (orchestration) and Niobe (GCP Terraform) |
@@ -55,3 +55,4 @@ terraform apply
 - `terraform.tfvars` and `*.tfstate*` must be added to `.gitignore` (managed by Switch).
 - Do **not** run `terraform apply` before reading the ExpressRoute provider's provisioning steps.
 - VPN GW and ER GW share the GatewaySubnet — this is standard Azure coexistence topology.
+- Test VMs have no public IPs and no inbound internet SSH rule; use Azure Serial Console through managed boot diagnostics.

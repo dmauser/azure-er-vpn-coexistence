@@ -5,15 +5,6 @@
 # ---------------------------------------------------------------------------
 # Hub VM
 # ---------------------------------------------------------------------------
-resource "azurerm_public_ip" "hub_vm" {
-  name                = "${var.hub_name}-lxvm-pip"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  tags                = local.tags
-}
-
 resource "azurerm_network_interface" "hub_vm" {
   name                = "${var.hub_name}-lxvm-nic"
   location            = azurerm_resource_group.this.location
@@ -24,7 +15,6 @@ resource "azurerm_network_interface" "hub_vm" {
     name                          = "ipconfig1"
     subnet_id                     = azurerm_subnet.hub_subnet1.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.hub_vm.id
   }
 }
 
@@ -37,7 +27,9 @@ resource "azurerm_linux_virtual_machine" "hub" {
   admin_password                  = var.vm_admin_password
   disable_password_authentication = false
   network_interface_ids           = [azurerm_network_interface.hub_vm.id]
-  tags                            = local.tags
+  # Cloud-init installs network tools via apt using Azure default outbound access; no VM public IP is required.
+  custom_data = base64encode(local.nettools_cloud_init)
+  tags        = local.tags
 
   os_disk {
     caching              = "ReadWrite"
@@ -50,20 +42,14 @@ resource "azurerm_linux_virtual_machine" "hub" {
     sku       = "22_04-lts-gen2"
     version   = "latest"
   }
+
+  # boot_diagnostics enables Serial Console access (az serialconsole / portal).
+  boot_diagnostics {}
 }
 
 # ---------------------------------------------------------------------------
 # Spoke 1 VM
 # ---------------------------------------------------------------------------
-resource "azurerm_public_ip" "spoke1_vm" {
-  name                = "${var.spoke1_name}-lxvm-pip"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  tags                = local.tags
-}
-
 resource "azurerm_network_interface" "spoke1_vm" {
   name                = "${var.spoke1_name}-lxvm-nic"
   location            = azurerm_resource_group.this.location
@@ -74,7 +60,6 @@ resource "azurerm_network_interface" "spoke1_vm" {
     name                          = "ipconfig1"
     subnet_id                     = azurerm_subnet.spoke1_subnet1.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.spoke1_vm.id
   }
 }
 
@@ -87,6 +72,7 @@ resource "azurerm_linux_virtual_machine" "spoke1" {
   admin_password                  = var.vm_admin_password
   disable_password_authentication = false
   network_interface_ids           = [azurerm_network_interface.spoke1_vm.id]
+  custom_data                     = base64encode(local.nettools_cloud_init)
   tags                            = local.tags
 
   os_disk {
@@ -100,20 +86,13 @@ resource "azurerm_linux_virtual_machine" "spoke1" {
     sku       = "22_04-lts-gen2"
     version   = "latest"
   }
+
+  boot_diagnostics {}
 }
 
 # ---------------------------------------------------------------------------
 # Spoke 2 VM
 # ---------------------------------------------------------------------------
-resource "azurerm_public_ip" "spoke2_vm" {
-  name                = "${var.spoke2_name}-lxvm-pip"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  tags                = local.tags
-}
-
 resource "azurerm_network_interface" "spoke2_vm" {
   name                = "${var.spoke2_name}-lxvm-nic"
   location            = azurerm_resource_group.this.location
@@ -124,7 +103,6 @@ resource "azurerm_network_interface" "spoke2_vm" {
     name                          = "ipconfig1"
     subnet_id                     = azurerm_subnet.spoke2_subnet1.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.spoke2_vm.id
   }
 }
 
@@ -137,6 +115,7 @@ resource "azurerm_linux_virtual_machine" "spoke2" {
   admin_password                  = var.vm_admin_password
   disable_password_authentication = false
   network_interface_ids           = [azurerm_network_interface.spoke2_vm.id]
+  custom_data                     = base64encode(local.nettools_cloud_init)
   tags                            = local.tags
 
   os_disk {
@@ -150,4 +129,6 @@ resource "azurerm_linux_virtual_machine" "spoke2" {
     sku       = "22_04-lts-gen2"
     version   = "latest"
   }
+
+  boot_diagnostics {}
 }

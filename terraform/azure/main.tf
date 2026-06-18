@@ -4,6 +4,23 @@ locals {
     Project   = "azure-er-vpn-coexistence"
     ManagedBy = "Terraform"
   }
+  nettools_cloud_init = <<-CLOUD_INIT
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - net-tools
+  - traceroute
+  - tcptraceroute
+  - nmap
+  - hping3
+  - iperf3
+  - nginx
+  - speedtest-cli
+  - moreutils
+runcmd:
+  - [ bash, -lc, "hostname > /var/www/html/index.html" ]
+  CLOUD_INIT
 }
 
 # ---------------------------------------------------------------------------
@@ -16,26 +33,15 @@ resource "azurerm_resource_group" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# NSG — allow SSH only from specified source; intra-VNet / gateway traffic
-# is covered by the default AllowVnetInBound rule (VirtualNetwork tag).
+# NSG — VMs are reached via Serial Console only; there is no inbound SSH from
+# the internet and VM NICs have no public IPs. Intra-VNet / gateway traffic is
+# still covered by the default AllowVnetInBound rule (VirtualNetwork tag).
 # ---------------------------------------------------------------------------
 resource "azurerm_network_security_group" "default" {
   name                = "Default-NSG"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
   tags                = local.tags
-
-  security_rule {
-    name                       = "Allow-SSH-Inbound"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_address_prefix      = var.restrict_ssh_source_prefix
-    source_port_range          = "*"
-    destination_address_prefix = "*"
-    destination_port_range     = "22"
-  }
 }
 
 # ---------------------------------------------------------------------------
