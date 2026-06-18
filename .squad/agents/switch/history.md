@@ -57,3 +57,26 @@ Updated root `README.md` **Quick Start** section for consistency with Tank's exp
 - Expanded Step 1 description from "VPN gateway" to "VPN + ExpressRoute gateways" for accuracy.
 - Updated the **"For full details"** section to explicitly list: pre-flight checklist, requirements & setup, detailed step-by-step, **troubleshooting**, VPN verification, ER/Interconnect, coexistence/failover.
 - Kept concise; root README is overview; Tank's runbook holds the detail and checklist/troubleshooting.
+
+**2026-06-17 - Network Test Tools Docs**
+
+Documented that network test tools are auto-installed on all Linux VMs at first boot:
+- **Azure**: all three VMs install via cloud-init `custom_data`.
+- **GCP**: the on-prem VM installs via `metadata_startup_script`.
+- Canonical user-facing section now lives in `terraform/README.md#network-test-tools`, with a pointer from root `README.md`.
+
+
+**2026-06-17 - Scripted Deploy, Serial Console, and Route Inspection Docs**
+
+Updated the canonical runbook and root README for the new root deployment wrappers and route diagnostics:
+- Added `terraform/README.md#scripted-deployment-recommended` for `deploy.sh` / `deploy.ps1`, including check/deploy/destroy, ExpressRoute, non-interactive usage, secure password handling, and Megaport stop/re-run behavior.
+- Added Azure Serial Console access guidance for VMs with no public IPs and documented that outbound internet is still available for first-boot `apt` installs.
+- Added `terraform/README.md#route-inspection` for the Azure and GCP route dump scripts.
+- Removed `restrict_ssh_source_prefix` from user-facing docs; public IP now applies only to GCP `caller_source_ip`.
+
+### 2026-06-17 — Session finalization (Scribe: decisions merged, orchestration logs)
+
+- Terraform revamp finalized and validated by Morpheus (all gates passed)
+- Documentation updates committed as per Scribe orchestration log
+- All 14 decisions merged into `.squad/decisions.md` from inbox; inbox files deleted
+- Orchestration log written: 2026-06-17T20_47_00-switch.md

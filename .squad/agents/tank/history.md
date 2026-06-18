@@ -8,6 +8,36 @@
 
 ## Learnings
 
+### 2026-06-17 — Deploy wrapper scripts (task: deploy-scripts)
+
+**Scope:** Built `deploy.sh` (bash) and `deploy.ps1` (PowerShell) at repo root. Both scripts validate prerequisites, orchestrate the 3-apply Terraform deployment, support an optional ER stage, and handle destroy in reverse order.
+
+**Variable names verified against actual `.tf` files before coding:**
+- Azure required: `vm_admin_username`, `vm_admin_password`, `restrict_ssh_source_prefix` (with `/32` suffix appended by script)
+- Azure booleans: `enable_onprem_connection` (false→Step1, true→Step3), `enable_expressroute` (ER stage only)
+- GCP required: `project`, `caller_source_ip` (no mask)
+- GCP boolean: `enable_interconnect` (ER stage only)
+- Resource/output names: `Azure-to-OnpremGCP` (VPN connection), `vpn-to-azure` (GCP tunnel), `lab-er-vpn-coexistence` (RG), `vpnlab-vm1` (GCP VM default), `interconnect_pairing_key` / `expressroute_service_key` (ER keys)
+
+**Security design:**
+- Password is collected via `read -s` (bash) / `Read-Host -AsSecureString` (PowerShell), then exported to `TF_VAR_vm_admin_password` environment variable. This keeps the secret out of the process list (`ps aux`). The shell variable is cleared immediately after export.
+- `TF_VAR_vm_admin_password` is removed from the environment in a `finally` block (PowerShell) and via `unset` (bash) on exit, including the ER-stage early-exit path.
+
+**Key design decisions:**
+- `terraform -input=false` prevents interactive prompts during CI/CD usage.
+- `enable_onprem_connection=true` is passed during destroy so Terraform can plan the LNG + VPN connection teardown while GCP state still exists (remote_state data source resolves correctly).
+- ER stage stops after dumping keys and instructs user to re-run `--expressroute` after circuit reaches Provisioned (Megaport VXC must be active before `ER-Connection-to-Onprem` is functional).
+
+**Bash gotcha fixed:** heredoc delimiter `USAGE` conflicted with the word `USAGE` appearing as a section header inside the heredoc content → renamed delimiter to `HELPTEXT`.
+
+**Line ending issue fixed:** Windows `create` tool writes CRLF by default; bash fails on `\r\n`. Fixed by converting `deploy.sh` to LF with `[System.IO.File]::WriteAllText(...)` using `UTF8` encoding.
+
+**Syntax check results:**
+- `bash -n deploy.sh` → exit 0 (no errors)
+- PowerShell `Parser::ParseFile` → 0 errors
+
+**Decision written:** `.squad/decisions/inbox/tank-deploy-scripts.md`
+
 ### 2026-06-17 — First-time user success audit (task: docs-success-audit)
 
 **Scope:** End-to-end audit of `terraform/README.md` and both `terraform.tfvars.example` files against real `.tf` source. Closed 7 first-timer failure points.
@@ -60,3 +90,12 @@ Both return `Success! The configuration is valid.` with providers already initia
 **Runbook written:** `terraform/README.md` — canonical 3-apply order with exact variable/output names, verification commands, Megaport handoff instructions, and cleanup order.
 
 **Decision written:** `.squad/decisions/inbox/tank-cross-state-contract.md`
+
+### 2026-06-17 — Session finalization (Scribe: decisions merged, orchestration logs)
+
+- Terraform revamp finalized and validated by Morpheus (all gates passed)
+- Deploy wrapper scripts and success audit work committed as per Scribe orchestration log
+- Deploy work SUPERSEDED by Coordinator's clean rewrite of deploy.sh/deploy.ps1
+- Coordinator applied critical trap fix to deploy.sh (TF_VAR_vm_admin_password cleanup on EXIT) — High-severity finding from Morpheus resolved
+- All 14 decisions merged into `.squad/decisions.md` from inbox; inbox files deleted
+- No orchestration log for Tank (work superseded); decisions preserved

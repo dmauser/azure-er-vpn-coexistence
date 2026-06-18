@@ -20,3 +20,26 @@
 - **random_password PSK:** `length = 24, special = false` produces a clean ASCII key safe for IKEv2 PSK; stored in local state; shared key is `sensitive` in outputs.
 - **terraform validate:** Passes without real variable values; does not resolve remote-state output keys at validate time — safe.
 - **azurerm version pinned:** `~> 3.100` (resolved to 3.117.1). Avoids azurerm 4.x breaking `subscription_id` requirement.
+
+### 2026-06-17 — Azure VM hardening + route dumps
+
+- **VM hardening:** Removed VM public IP resources and NIC public IP bindings for `hub`, `spoke1`, and `spoke2`. Removed `restrict_ssh_source_prefix` and the custom `Allow-SSH-Inbound` NSG rule; VM access is now through Azure Serial Console, with default NSG platform rules only.
+- **Serial Console enablement:** Added empty `boot_diagnostics {}` blocks to all three `azurerm_linux_virtual_machine` resources. Empty boot diagnostics uses managed platform storage and enables Serial Console access (`az serialconsole` / portal).
+- **Route-dump approach:** Added root scripts `dump-routes-azure.sh` and `dump-routes-azure.ps1`. They verify `az`, show the active subscription, prompt for defaults while accepting flags/env for automation, auto-discover NICs in the RG, and gracefully continue when ExpressRoute resources are disabled or unprovisioned.
+- **VM nettools cloud-init:** Added shared `local.nettools_cloud_init` and assigned it to all three Linux VMs via `custom_data = base64encode(local.nettools_cloud_init)`. It installs `net-tools`, `traceroute`, `tcptraceroute`, `nmap`, `hping3`, `iperf3`, `nginx`, `speedtest-cli`, and `moreutils`, then writes `hostname` to `/var/www/html/index.html`; apt relies on Azure default outbound access because the VMs have no public IP.
+- **deploy.sh secret cleanup:** Added an `EXIT` trap immediately after exporting `TF_VAR_vm_admin_password` so the Terraform VM password is cleared even if `set -e` aborts on apply failure.
+- **Exact az commands used by the scripts:**
+  - `az network express-route list-route-table --resource-group <rg> --name <circuit> --peering-name AzurePrivatePeering --path primary -o table`
+  - `az network express-route list-route-table --resource-group <rg> --name <circuit> --peering-name AzurePrivatePeering --path secondary -o table`
+  - `az network nic list -g <rg> --query "[].name" -o tsv`
+  - `az network nic show-effective-route-table --resource-group <rg> --name <nic> -o table`
+  - `az network vnet-gateway list-learned-routes --resource-group <rg> --name <er-gw> -o table`
+  - Optional: `az network vnet-gateway list-advertised-routes --resource-group <rg> --name <er-gw> -o table`
+
+### 2026-06-17 — Session finalization (Scribe: decisions merged, orchestration logs)
+
+- Terraform revamp finalized and validated by Morpheus (all gates passed: Secrets/State/Cross-State/Billing/Fidelity/Docs)
+- VM hardening + route dumps committed as per Scribe orchestration log
+- Coordinator applied critical trap fix to deploy.sh (TF_VAR_vm_admin_password cleanup on EXIT) — High-severity finding from Morpheus resolved
+- All 14 decisions merged into `.squad/decisions.md` from inbox; inbox files deleted
+- Orchestration log written: 2026-06-17T20_47_00-trinity.md
