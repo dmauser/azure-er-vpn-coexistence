@@ -579,8 +579,8 @@ Four root diagnostic scripts dump control-plane route state after deployment. Th
 
 | Script | What it dumps |
 |---|---|
-| `dump-routes-azure.sh` / `dump-routes-azure.ps1` | Prompts for resource group (default `lab-er-vpn-coexistence`) and dumps ExpressRoute circuit routes for `AzurePrivatePeering` primary and secondary paths when the circuit is `Provisioned`, VM effective routes for each NIC, and ExpressRoute gateway learned routes. If ExpressRoute is disabled or not provisioned, the script reports that and continues. |
-| `dump-routes-gcp.sh` / `dump-routes-gcp.ps1` | Prompts for project and region (default `us-central1`) and dumps VPC routes (static and dynamic), Cloud Router BGP learned/advertised status when Interconnect is enabled, VPN tunnel status, and the route backing the tunnel. If Interconnect is disabled, the script reports that and continues. |
+| `dump-routes-azure.sh` / `dump-routes-azure.ps1` | Prompts for resource group (default `lab-er-vpn-coexistence`) and lets you select which components to dump: VM effective routes (NICs), ExpressRoute circuit routes for `AzurePrivatePeering` primary/secondary paths, ExpressRoute gateway routes, and VPN gateway routes — each independently selectable via the interactive prompt or `--components nics,circuit,ergw,vpngw` (`AZURE_ROUTE_COMPONENTS`). If a resource is disabled or not provisioned, the script reports that and continues. |
+| `dump-routes-gcp.sh` / `dump-routes-gcp.ps1` | Prompts for project and region (default `us-central1`) and prints a friendly view: a health summary (VPN tunnel up/down, gateway READY, static route present, Cloud Router/BGP state), key/value detail for the VPN tunnel, classic gateway, and tunnel-backed route, and labeled tables for VPC routes (static + dynamic), forwarding rules, and firewall rules. Add `--raw`/`-Raw` for the full gcloud YAML/describe output. If Interconnect/BGP is disabled or a resource is missing, the script reports it and continues. |
 
 Examples:
 
@@ -592,6 +592,66 @@ Examples:
 ```powershell
 .\dump-routes-azure.ps1
 .\dump-routes-gcp.ps1 -Project my-gcp-project -Region us-central1
+```
+
+### Azure script — component selection
+
+The Azure script lets you dump any subset of components, either interactively or via `--components` / `-Components` (comma-separated, or `all`):
+
+| Component | Dumps |
+|---|---|
+| `nics` | VM effective routes for each NIC (auto-discovered or `--nics`) |
+| `circuit` | ExpressRoute circuit routes (`AzurePrivatePeering` primary + secondary) |
+| `ergw` | ExpressRoute gateway learned routes (+ advertised with `--advertised`) |
+| `vpngw` | VPN gateway learned routes (+ advertised with `--advertised`) |
+
+| Flag (bash) | Param (PowerShell) | Environment | Default |
+|---|---|---|---|
+| `--components nics,circuit,ergw,vpngw` | `-Components` | `AZURE_ROUTE_COMPONENTS` | prompt (all) |
+| `--resource-group` | `-ResourceGroup` | `AZURE_ROUTE_RG` | `lab-er-vpn-coexistence` |
+| `--circuit-name` | `-CircuitName` | `AZURE_ROUTE_CIRCUIT` | terraform output or `az-hub-er-circuit` |
+| `--er-gateway-name` | `-ErGatewayName` | `AZURE_ROUTE_ER_GATEWAY` | `Az-Hub-ergw` |
+| `--vpn-gateway-name` | `-VpnGatewayName` | `AZURE_ROUTE_VPN_GATEWAY` | `Az-Hub-vpngw` |
+| `--nics` | `-Nics` | `AZURE_ROUTE_NICS` | auto-discovered |
+| `--advertised` | `-Advertised` | `AZURE_ROUTE_ADVERTISED` | off |
+| `--yes` | `-Yes` | `AZURE_ROUTE_YES` | off (interactive) |
+
+```bash
+# Only the VPN gateway, with advertised routes, non-interactive
+./dump-routes-azure.sh --components vpngw --advertised --yes
+# ER gateway + circuit together
+./dump-routes-azure.sh --components ergw,circuit
+```
+
+```powershell
+.\dump-routes-azure.ps1 -Components vpngw -Advertised -Yes
+.\dump-routes-azure.ps1 -Components ergw,circuit
+```
+
+`--advertised` auto-discovers each BGP peer and lists the routes advertised to every peer (both ER and VPN gateways).
+
+### GCP script — friendly view and `--raw`
+
+The GCP script defaults to a friendly summary (tunnel/gateway/route/BGP health, key/value detail, labeled tables). Add `--raw` / `-Raw` for the full `gcloud ... describe` YAML.
+
+| Flag (bash) | Param (PowerShell) | Environment | Default |
+|---|---|---|---|
+| `--project` | `-Project` | `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` | gcloud config |
+| `--region` | `-Region` | `GCP_REGION` | `us-central1` |
+| `--network` | `-Network` | `GCP_NETWORK` | `vpnlab-vpc` |
+| `--router` | `-Router` | `GCP_ROUTER` | `vpnlab-router` |
+| `--tunnel` | `-Tunnel` | `GCP_VPN_TUNNEL` | `vpn-to-azure` |
+| `--gateway` | `-Gateway` | `GCP_VPN_GATEWAY` | `onpremvpn` |
+| `--route` | `-Route` | `GCP_VPN_ROUTE` | `vpn-to-azure-route-1` |
+| `--raw` | `-Raw` | — | off (friendly view) |
+| `--no-prompt` | `-NoPrompt` | — | off (interactive) |
+
+```bash
+./dump-routes-gcp.sh --project my-gcp-project --raw
+```
+
+```powershell
+.\dump-routes-gcp.ps1 -Project my-gcp-project -Raw
 ```
 
 ---

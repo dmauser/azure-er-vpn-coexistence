@@ -4,12 +4,17 @@
 #
 # Usage:
 #   ./dump-routes-azure.sh [--resource-group RG] [--circuit-name NAME]
-#                          [--er-gateway-name NAME] [--nics NIC1,NIC2]
+#                          [--er-gateway-name NAME] [--vpn-gateway-name NAME]
+#                          [--nics NIC1,NIC2] [--components nics,circuit,ergw,vpngw]
 #                          [--advertised] [--yes]
 #
 # Environment overrides:
 #   AZURE_ROUTE_RG, AZURE_ROUTE_CIRCUIT, AZURE_ROUTE_ER_GATEWAY,
-#   AZURE_ROUTE_NICS, AZURE_ROUTE_ADVERTISED=true, AZURE_ROUTE_YES=true
+#   AZURE_ROUTE_VPN_GATEWAY, AZURE_ROUTE_NICS, AZURE_ROUTE_COMPONENTS,
+#   AZURE_ROUTE_ADVERTISED=true, AZURE_ROUTE_YES=true
+#
+# Components: nics, circuit, ergw, vpngw (or all). When omitted in interactive
+# mode you are prompted to choose; otherwise all components are dumped.
 #
 # The script prompts with sensible defaults when run interactively. It uses
 # Azure CLI control-plane commands only; VM public IPs are not required.
@@ -19,18 +24,21 @@ set -u
 DEFAULT_RG="lab-er-vpn-coexistence"
 DEFAULT_CIRCUIT="az-hub-er-circuit"
 DEFAULT_ER_GW="Az-Hub-ergw"
+DEFAULT_VPN_GW="Az-Hub-vpngw"
 DEFAULT_NICS=("Az-Hub-lxvm-nic" "Az-Spk1-lxvm-nic" "Az-Spk2-lxvm-nic")
 PEERING_NAME="AzurePrivatePeering"
 
 RG="${AZURE_ROUTE_RG:-$DEFAULT_RG}"
 CIRCUIT="${AZURE_ROUTE_CIRCUIT:-$DEFAULT_CIRCUIT}"
 ER_GW="${AZURE_ROUTE_ER_GATEWAY:-$DEFAULT_ER_GW}"
+VPN_GW="${AZURE_ROUTE_VPN_GATEWAY:-$DEFAULT_VPN_GW}"
 NICS_CSV="${AZURE_ROUTE_NICS:-}"
+COMPONENTS_CSV="${AZURE_ROUTE_COMPONENTS:-}"
 YES="${AZURE_ROUTE_YES:-false}"
 INCLUDE_ADVERTISED="${AZURE_ROUTE_ADVERTISED:-false}"
 
 usage() {
-  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -41,8 +49,12 @@ while [[ $# -gt 0 ]]; do
       CIRCUIT="$2"; shift 2 ;;
     --er-gateway-name|-e)
       ER_GW="$2"; shift 2 ;;
+    --vpn-gateway-name|-v)
+      VPN_GW="$2"; shift 2 ;;
     --nics|-n)
       NICS_CSV="$2"; shift 2 ;;
+    --components|-C)
+      COMPONENTS_CSV="$2"; shift 2 ;;
     --advertised)
       INCLUDE_ADVERTISED="true"; shift ;;
     --yes|-y)
@@ -145,7 +157,7 @@ discover_nics() {
 dump_circuit_routes_for_path() {
   local path="$1"
   echo "-- ExpressRoute circuit route table ($path)"
-  if ! az network express-route list-route-table \
+  if ! az network express-route list-route-tables \
     --resource-group "$RG" \
     --name "$CIRCUIT" \
     --peering-name "$PEERING_NAME" \
@@ -168,36 +180,125 @@ dump_effective_routes() {
 }
 
 dump_gateway_routes() {
-  echo "-- ExpressRoute gateway learned routes: $ER_GW"
-  if ! az network vnet-gateway list-learned-routes --resource-group "$RG" --name "$ER_GW" -o table; then
-    note "Learned routes unavailable (ER gateway/connection may not exist). Continuing."
+  local gw_name="$1"
+  local kind="$2"
+  echo "-- $kind gateway learned routes: $gw_name"
+  if ! az network vnet-gateway list-learned-routes --resource-group "$RG" --name "$gw_name" -o table; then
+    note "Learned routes unavailable ($kind gateway/connection may not exist). Continuing."
   fi
   if is_true "$INCLUDE_ADVERTISED"; then
     echo
-    echo "-- ExpressRoute gateway advertised routes: $ER_GW"
-    if ! az network vnet-gateway list-advertised-routes --resource-group "$RG" --name "$ER_GW" -o table; then
-      note "Advertised routes unavailable (ER gateway/connection may not exist). Continuing."
+    echo "-- $kind gateway advertised routes: $gw_name"
+    local peers peer
+    peers="$(az network vnet-gateway list-bgp-peer-status --resource-group "$RG" --name "$gw_name" --query "value[].neighbor" -o tsv 2>/dev/null | sort -u)"
+    if [[ -z "$peers" ]]; then
+      note "Advertised routes unavailable ($kind gateway has no BGP peers, or gateway/connection may not exist). Continuing."
+      return
+    fi
+    while IFS= read -r peer; do
+      [[ -z "$peer" ]] && continue
+      echo "   advertised to peer ${peer}:"
+      if ! az network vnet-gateway list-advertised-routes --resource-group "$RG" --name "$gw_name" --peer "$peer" -o table; then
+        note "Advertised routes unavailable for peer '$peer'. Continuing."
+      fi
+      echo
+    done <<< "$peers"
+  fi
+}
+
+component_selected() {
+  local want="$1"
+  local c
+  for c in "${COMPONENTS[@]}"; do
+    [[ "$c" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+resolve_components() {
+  COMPONENTS=()
+  local raw token c
+  if [[ -n "$COMPONENTS_CSV" ]]; then
+    IFS=',' read -r -a raw <<< "$COMPONENTS_CSV"
+    for token in "${raw[@]}"; do
+      c="$(printf '%s' "$token" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+      case "$c" in
+        all) COMPONENTS=("nics" "circuit" "ergw" "vpngw"); return ;;
+        nics|circuit|ergw|vpngw) COMPONENTS+=("$c") ;;
+        "" ) ;;
+        *) note "Ignoring unknown component: $token." ;;
+      esac
+    done
+    [[ ${#COMPONENTS[@]} -gt 0 ]] && return
+  fi
+
+  if [[ -t 0 ]] && ! is_true "$YES"; then
+    section "Select route components to dump"
+    echo "  1) VMs / NICs effective routes"
+    echo "  2) ExpressRoute circuit routes"
+    echo "  3) ExpressRoute gateway routes"
+    echo "  4) VPN gateway routes"
+    echo "Enter numbers separated by commas (e.g. 1,3,4), or press Enter for all."
+    local reply
+    read -r -p "Components [all]: " reply
+    if [[ -n "$reply" ]]; then
+      IFS=', ' read -r -a raw <<< "$reply"
+      for token in "${raw[@]}"; do
+        case "$token" in
+          1) COMPONENTS+=("nics") ;;
+          2) COMPONENTS+=("circuit") ;;
+          3) COMPONENTS+=("ergw") ;;
+          4) COMPONENTS+=("vpngw") ;;
+          nics|circuit|ergw|vpngw) COMPONENTS+=("$token") ;;
+          "" ) ;;
+          *) note "Ignoring unknown selection: $token." ;;
+        esac
+      done
+      [[ ${#COMPONENTS[@]} -gt 0 ]] && return
     fi
   fi
+
+  COMPONENTS=("nics" "circuit" "ergw" "vpngw")
 }
 
 require_az
 try_terraform_circuit_name
 
+resolve_components
+note "Components selected: ${COMPONENTS[*]}"
+
 RG="$(prompt_default "Resource group" "$RG")"
-CIRCUIT="$(prompt_default "ExpressRoute circuit name" "$CIRCUIT")"
-ER_GW="$(prompt_default "ExpressRoute gateway name" "$ER_GW")"
+if component_selected "circuit"; then
+  CIRCUIT="$(prompt_default "ExpressRoute circuit name" "$CIRCUIT")"
+fi
+if component_selected "ergw"; then
+  ER_GW="$(prompt_default "ExpressRoute gateway name" "$ER_GW")"
+fi
+if component_selected "vpngw"; then
+  VPN_GW="$(prompt_default "VPN gateway name" "$VPN_GW")"
+fi
 
 confirm_subscription
-discover_nics
 
-section "ExpressRoute circuit routes only"
-dump_circuit_routes_for_path "primary"
-echo
-dump_circuit_routes_for_path "secondary"
+if component_selected "circuit"; then
+  section "ExpressRoute circuit routes only"
+  dump_circuit_routes_for_path "primary"
+  echo
+  dump_circuit_routes_for_path "secondary"
+fi
 
-section "VM effective routes"
-dump_effective_routes
+if component_selected "nics"; then
+  discover_nics
+  section "VM effective routes"
+  dump_effective_routes
+fi
 
-section "ExpressRoute gateway learned routes"
-dump_gateway_routes
+if component_selected "ergw"; then
+  section "ExpressRoute gateway learned routes"
+  dump_gateway_routes "$ER_GW" "ExpressRoute"
+fi
+
+if component_selected "vpngw"; then
+  section "VPN gateway learned routes"
+  dump_gateway_routes "$VPN_GW" "VPN"
+fi
