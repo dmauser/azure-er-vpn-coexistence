@@ -747,6 +747,37 @@ The Megaport VXC has not been ordered or has not activated yet. The Azure ER cir
 ### Destroy fails — resource dependencies or GCP dangling reference
 Always destroy in **reverse order**: Azure first, then GCP. If you accidentally destroyed GCP first, the Azure Local Network Gateway and VPN Connection may be orphaned. Import them back with `terraform import` or delete them manually in the Azure portal before re-running `terraform destroy` on Azure.
 
+### Restricted subscriptions: Standard public IP gate
+
+**Why Standard PIPs are required:** The lab uses an active-active VPN gateway with BGP, which requires Standard SKU public IPs. Azure retired Basic SKU public IPs on 2025-09-30 and they never supported active-active or BGP anyway.
+
+**Symptom:** `terraform apply` succeeds for the VM and network resources but then fails ~20 minutes in at `azurerm_public_ip.vpn_gw_pip1` with an error like:
+```
+SubscriptionNotRegisteredForFeature ... Microsoft.Network/AllowBringYourOwnPublicIpAddress
+```
+
+**Pre-flight detection:** The `deploy.sh` / `deploy.ps1` scripts now probe for this condition before any `terraform apply` runs. If detected, the script exits immediately with full instructions.
+
+**What the feature actually does:** Despite the misleading name, `Microsoft.Network/AllowBringYourOwnPublicIpAddress` is NOT about bringing your own IP prefix. It is simply a subscription-level gate that Microsoft enables by default on most subscriptions but leaves locked on certain restricted or FDPO subscriptions. Registering it unlocks normal Azure-allocated Standard public IPs — nothing else changes.
+
+**Fix (one-time, per subscription):**
+```bash
+az feature register --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress
+az feature show --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress --query properties.state -o tsv   # wait until: Registered
+az provider register --namespace Microsoft.Network
+```
+Then re-run the deploy script. Registration typically takes 5-15 minutes.
+
+**Alternative:** Use an unrestricted Azure subscription where Standard public IPs work without any feature registration.
+
+**Bypass the pre-flight check** (if you already know the subscription is unblocked and want to skip the ~30-second probe):
+```bash
+SKIP_PIP_PRECHECK=1 ./deploy.sh deploy ...
+```
+```powershell
+$env:SKIP_PIP_PRECHECK=1; .\deploy.ps1 ...
+```
+
 ---
 
 ## Cross-State Contract Reference

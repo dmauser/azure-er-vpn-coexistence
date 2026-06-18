@@ -186,6 +186,41 @@ check_prereqs() {
   AZ_ID=$(az account show --query id -o tsv 2>/dev/null)
   ok "Azure subscription: ${AZ_NAME} (${AZ_ID})"
 
+  # -- Standard public IP capability ------------------------------------------
+  step "Azure Standard public IP capability"
+
+  if [[ -n "${SKIP_PIP_PRECHECK:-}" ]]; then
+    ok "Standard public IP pre-check skipped (SKIP_PIP_PRECHECK set)"
+  else
+    pip_rg="tfpreflight-pip-$RANDOM"
+    az group create -n "${pip_rg}" -l eastus &>/dev/null \
+      || fail "Could not create a test resource group in eastus. Ensure this account has Contributor on the subscription to deploy the lab."
+    probe_out=$(az network public-ip create -g "${pip_rg}" -n probe-std --sku Standard --allocation-method Static -l eastus 2>&1)
+    probe_rc=$?
+    az group delete -n "${pip_rg}" --yes --no-wait &>/dev/null || true
+    if [[ ${probe_rc} -eq 0 ]]; then
+      ok "Standard public IP allocation: available"
+    elif echo "${probe_out}" | grep -qi 'AllowBringYourOwnPublicIpAddress\|SubscriptionNotRegisteredForFeature'; then
+      fail "This subscription gates allocation of ALL Standard SKU public IPs behind the
+Microsoft.Network/AllowBringYourOwnPublicIpAddress feature.
+
+Despite its name, this is NOT \"bring your own IP\". Registering it simply unlocks
+normal Azure-allocated Standard public IPs, which this lab requires:
+  - Active-active + BGP VPN gateways support ONLY Standard public IPs.
+  - Basic SKU public IPs were retired on 2025-09-30.
+
+Fix it once on this subscription (then re-run this script):
+  az feature register --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress
+  az feature show --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress --query properties.state -o tsv   # wait until: Registered
+  az provider register --namespace Microsoft.Network
+
+Or deploy on a subscription that is not restricted (Standard public IPs work with no setup).
+To bypass this check, set SKIP_PIP_PRECHECK=1."
+    else
+      fail "Could not create a test Standard public IP (unexpected error): ${probe_out}"
+    fi
+  fi
+
   step "GCP authentication"
 
   if [[ -n "${PROJECT}" ]]; then

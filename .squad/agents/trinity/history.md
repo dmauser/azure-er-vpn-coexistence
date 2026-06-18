@@ -46,7 +46,16 @@
 - All 14 decisions merged into `.squad/decisions.md` from inbox; inbox files deleted
 - Orchestration log written: 2026-06-17T20_47_00-trinity.md
 
-### 2026-06-18T02:30:00Z — tfvars Precedence Guard (Scribe decision merge)
+### 2026-06-17 — Standard public IP pre-flight probe
+
+- **Standard vs Basic PIP requirement:** Active-active VPN gateways with BGP require Standard SKU public IPs. Azure retired Basic SKU public IPs on 2025-09-30; they never supported active-active or BGP. `gateways.tf` must keep `sku = "Standard"` + `allocation_method = "Static"` on vpn_gw_pip1, vpn_gw_pip2, and er_gw_pip.
+- **FDPO subscription Standard-PIP gate:** The DMAUSER-FDPO subscription gates allocation of ALL Standard SKU public IPs behind the provider feature `Microsoft.Network/AllowBringYourOwnPublicIpAddress`. The feature name is misleading — it is NOT "bring your own IP prefix". Registering it simply unlocks normal Azure-allocated Standard public IPs. Most subscriptions have this unlocked by default; FDPO/restricted subs do not.
+- **Failure mode:** `terraform apply` creates the VM successfully, then fails ~20 min in at `azurerm_public_ip.vpn_gw_pip1` with `SubscriptionNotRegisteredForFeature ... Microsoft.Network/AllowBringYourOwnPublicIpAddress`.
+- **Pre-flight probe added:** Both `deploy.ps1` (`Test-Prereqs`) and `deploy.sh` (`check_prereqs`) now include a "Azure Standard public IP capability" step immediately after Azure subscription confirmation. The probe creates a temp RG and attempts `az network public-ip create --sku Standard`, cleans up the RG regardless, and exits with full fix instructions if the gated error is detected.
+- **No auto-registration:** Per user preference, the scripts detect and explain only; they hand the user the exact three `az` commands to run once.
+- **Bypass:** Set `SKIP_PIP_PRECHECK=1` to skip the probe (e.g., when subscription is known-good and you want to skip the ~30s probe).
+- **Docs:** Added "Restricted subscriptions: Standard public IP gate" subsection to `terraform/README.md` Troubleshooting section.
+
 
 - **Root cause:** Active `vm_admin_password` placeholder in `terraform/azure/terraform.tfvars` silently overrode strong password collected by `deploy.sh`/`deploy.ps1` due to Terraform variable precedence (tfvars > env var).
 - **Guard implemented:** Both deploy wrappers now fail during prerequisite validation if `terraform/azure/terraform.tfvars` contains uncommented `vm_admin_password`.

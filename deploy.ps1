@@ -232,6 +232,45 @@ Not logged in to Azure.
     $azAcct = $azAcctJson | ConvertFrom-Json
     Write-Ok "Azure subscription: $($azAcct.name) ($($azAcct.id))"
 
+    # -- Standard public IP capability ----------------------------------------
+    Write-Step 'Azure Standard public IP capability'
+
+    if ($env:SKIP_PIP_PRECHECK) {
+        Write-Ok 'Standard public IP pre-check skipped (SKIP_PIP_PRECHECK set)'
+    } else {
+        $pipRg = "tfpreflight-pip-$(Get-Random)"
+        & az group create -n $pipRg -l eastus --output none 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail 'Could not create a test resource group in eastus. Ensure this account has Contributor on the subscription to deploy the lab.'
+        }
+        $probeOut = & az network public-ip create -g $pipRg -n probe-std --sku Standard --allocation-method Static -l eastus 2>&1
+        $probeRc  = $LASTEXITCODE
+        & az group delete -n $pipRg --yes --no-wait --output none 2>$null
+        if ($probeRc -eq 0) {
+            Write-Ok 'Standard public IP allocation: available'
+        } elseif ($probeOut -match 'AllowBringYourOwnPublicIpAddress|SubscriptionNotRegisteredForFeature') {
+            Write-Fail @"
+This subscription gates allocation of ALL Standard SKU public IPs behind the
+Microsoft.Network/AllowBringYourOwnPublicIpAddress feature.
+
+Despite its name, this is NOT "bring your own IP". Registering it simply unlocks
+normal Azure-allocated Standard public IPs, which this lab requires:
+  - Active-active + BGP VPN gateways support ONLY Standard public IPs.
+  - Basic SKU public IPs were retired on 2025-09-30.
+
+Fix it once on this subscription (then re-run this script):
+  az feature register --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress
+  az feature show --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress --query properties.state -o tsv   # wait until: Registered
+  az provider register --namespace Microsoft.Network
+
+Or deploy on a subscription that is not restricted (Standard public IPs work with no setup).
+To bypass this check, set SKIP_PIP_PRECHECK=1.
+"@
+        } else {
+            Write-Fail "Could not create a test Standard public IP (unexpected error): $probeOut"
+        }
+    }
+
     # -- GCP auth -------------------------------------------------------------
     Write-Step 'GCP authentication'
 
