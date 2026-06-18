@@ -335,6 +335,24 @@ Root deploy wrappers (`deploy.sh` and `deploy.ps1`) now enforce the Azure VM adm
 
 ---
 
+### 16. Trinity — Terraform tfvars Password Precedence Guard
+
+**Date:** 2026-06-17  
+**Author:** Trinity (Azure TF Engineer)  
+**Status:** COMPLETED
+
+**Root Cause:**
+An active `vm_admin_password = "REPLACE_WITH_STRONG_PASSWORD!"` line in `terraform/azure/terraform.tfvars` silently overrode the strong password collected by `deploy.sh` / `deploy.ps1`. Terraform variable precedence gives `terraform.tfvars` higher priority than the `TF_VAR_vm_admin_password` environment variable used by the scripts.
+
+**Fix Applied:**
+1. Both root deploy wrappers (`deploy.sh` and `deploy.ps1`) now fail during prerequisite validation if `terraform/azure/terraform.tfvars` contains an uncommented `vm_admin_password` assignment.
+2. `terraform/azure/terraform.tfvars.example` now keeps both VM credential lines commented with an explanatory note: users should only uncomment them for direct manual Terraform runs without the deploy wrappers. The scripts supply username/password via environment variables.
+
+**Rationale:**
+Prevents silent password override and makes the precedence rule explicit to users. Deploy wrappers are the primary path; direct Terraform invocation is the advanced path.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

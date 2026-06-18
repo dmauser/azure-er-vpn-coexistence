@@ -29,6 +29,7 @@
 - **VM nettools cloud-init:** Added shared `local.nettools_cloud_init` and assigned it to all three Linux VMs via `custom_data = base64encode(local.nettools_cloud_init)`. It installs `net-tools`, `traceroute`, `tcptraceroute`, `nmap`, `hping3`, `iperf3`, `nginx`, `speedtest-cli`, and `moreutils`, then writes `hostname` to `/var/www/html/index.html`; apt relies on Azure default outbound access because the VMs have no public IP.
 - **deploy.sh secret cleanup:** Added an `EXIT` trap immediately after exporting `TF_VAR_vm_admin_password` so the Terraform VM password is cleared even if `set -e` aborts on apply failure.
 - **deploy password handling:** `deploy.sh` and `deploy.ps1` now enforce Azure's 12-72 character / 3-of-4 complexity rule for interactive, parameter, and environment passwords; interactive entry also requires confirmation.
+- **terraform.tfvars precedence guard:** `deploy.sh` and `deploy.ps1` now fail during prerequisite checks if `terraform/azure/terraform.tfvars` actively sets `vm_admin_password`, because Terraform tfvars values override `TF_VAR_vm_admin_password` from the secure prompt.
 - **Exact az commands used by the scripts:**
   - `az network express-route list-route-table --resource-group <rg> --name <circuit> --peering-name AzurePrivatePeering --path primary -o table`
   - `az network express-route list-route-table --resource-group <rg> --name <circuit> --peering-name AzurePrivatePeering --path secondary -o table`
@@ -44,3 +45,11 @@
 - Coordinator applied critical trap fix to deploy.sh (TF_VAR_vm_admin_password cleanup on EXIT) — High-severity finding from Morpheus resolved
 - All 14 decisions merged into `.squad/decisions.md` from inbox; inbox files deleted
 - Orchestration log written: 2026-06-17T20_47_00-trinity.md
+
+### 2026-06-18T02:30:00Z — tfvars Precedence Guard (Scribe decision merge)
+
+- **Root cause:** Active `vm_admin_password` placeholder in `terraform/azure/terraform.tfvars` silently overrode strong password collected by `deploy.sh`/`deploy.ps1` due to Terraform variable precedence (tfvars > env var).
+- **Guard implemented:** Both deploy wrappers now fail during prerequisite validation if `terraform/azure/terraform.tfvars` contains uncommented `vm_admin_password`.
+- **Example file updated:** `terraform/azure/terraform.tfvars.example` keeps credentials commented with note explaining script supply behavior.
+- **Decision #16 merged:** Trinity inbox decision merged into decisions.md; inbox file deleted.
+- **Orchestration log:** 2026-06-18T02-30-trinity.md
