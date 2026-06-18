@@ -123,6 +123,37 @@ function Test-Interactive {
     catch { return $true }
 }
 
+function Test-PasswordComplexity {
+    param([AllowEmptyString()][string]$Password)
+    if ($null -eq $Password) { return $false }
+    if ($Password.Length -lt 12 -or $Password.Length -gt 72) { return $false }
+    $classes = 0
+    if ($Password -match '[a-z]') { $classes++ }
+    if ($Password -match '[A-Z]') { $classes++ }
+    if ($Password -match '[0-9]') { $classes++ }
+    if ($Password -match '[^a-zA-Z0-9]') { $classes++ }
+    return ($classes -ge 3)
+}
+
+function Get-PasswordComplexityMessage {
+    param([AllowEmptyString()][string]$Password)
+    if ($null -eq $Password) { $Password = '' }
+    $issues = @()
+    $missing = @()
+    if ($Password.Length -lt 12) { $issues += "too short ($($Password.Length)/12)" }
+    if ($Password.Length -gt 72) { $issues += "too long ($($Password.Length)/72)" }
+    if ($Password -notmatch '[a-z]') { $missing += 'lowercase' }
+    if ($Password -notmatch '[A-Z]') { $missing += 'uppercase' }
+    if ($Password -notmatch '[0-9]') { $missing += 'digit' }
+    if ($Password -notmatch '[^a-zA-Z0-9]') { $missing += 'special' }
+    if ($missing.Count -gt 1) {
+        $issues += "needs at least 3 of 4 categories; missing: $($missing -join ', ')"
+    }
+    $message = 'Password must be 12-72 chars and include at least 3 of: lowercase, uppercase, digit, special'
+    if ($issues.Count -gt 0) { $message += " ($($issues -join '; '))" }
+    return "$message."
+}
+
 # --- terraform invocation wrapper --------------------------------------------
 function Invoke-Tf {
     param(
@@ -306,6 +337,9 @@ function Get-RequiredInputs {
     # reads it automatically and it never appears on a command line.
     if ($env:TF_VAR_vm_admin_password) {
         # Already provided via environment (CI / non-interactive) - leave as-is.
+        if (-not (Test-PasswordComplexity -Password $env:TF_VAR_vm_admin_password)) {
+            Write-Fail 'Password must be 12-72 chars and include at least 3 of: lowercase, uppercase, digit, special.'
+        }
         return
     }
 
@@ -313,7 +347,10 @@ function Get-RequiredInputs {
         $bstr  = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($VmPassword)
         $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
         [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        if ($plain.Length -lt 12) { Write-Fail 'Password must be at least 12 characters.' }
+        if (-not (Test-PasswordComplexity -Password $plain)) {
+            $plain = $null
+            Write-Fail 'Password must be 12-72 chars and include at least 3 of: lowercase, uppercase, digit, special.'
+        }
         $env:TF_VAR_vm_admin_password = $plain
         $plain = $null
         return
@@ -323,16 +360,30 @@ function Get-RequiredInputs {
         Write-Fail 'No password supplied. For non-interactive runs set $env:TF_VAR_vm_admin_password or pass -VmPassword.'
     }
 
-    do {
-        $secPwd = Read-Host '  VM admin password (min 12 chars, upper+lower+digit+special)' -AsSecureString
+    while ($true) {
+        $secPwd = Read-Host '  VM admin password (12-72 chars, at least 3 of: upper, lower, digit, special)' -AsSecureString
         $bstr   = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secPwd)
         $plain  = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
         [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        if ($plain.Length -lt 12) {
-            Write-Warn "Password is $($plain.Length) chars - Azure requires at least 12."
+        if (-not (Test-PasswordComplexity -Password $plain)) {
+            Write-Warn (Get-PasswordComplexityMessage -Password $plain)
             $plain = $null
+            continue
         }
-    } while (-not $plain -or $plain.Length -lt 12)
+
+        $secConfirm = Read-Host '  Confirm VM admin password' -AsSecureString
+        $bstrConfirm = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secConfirm)
+        $confirm = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstrConfirm)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrConfirm)
+        if ($plain -ne $confirm) {
+            Write-Warn 'Passwords do not match - try again.'
+            $plain = $null
+            $confirm = $null
+            continue
+        }
+        $confirm = $null
+        break
+    }
     $env:TF_VAR_vm_admin_password = $plain
     $plain = $null
 }

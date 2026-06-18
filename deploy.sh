@@ -227,6 +227,38 @@ check_prereqs() {
   ok "All prerequisite checks passed."
 }
 
+# Validates Azure VM password complexity. Echoes nothing; returns 0/!0.
+password_is_valid() {
+  local p="$1"
+  [[ ${#p} -ge 12 && ${#p} -le 72 ]] || return 1
+  local classes=0
+  [[ "$p" == *[a-z]* ]] && classes=$((classes+1))
+  [[ "$p" == *[A-Z]* ]] && classes=$((classes+1))
+  [[ "$p" == *[0-9]* ]] && classes=$((classes+1))
+  [[ "$p" == *[^a-zA-Z0-9]* ]] && classes=$((classes+1))
+  [[ $classes -ge 3 ]]
+}
+
+password_validation_message() {
+  local p="$1"
+  local missing=()
+  local issues=()
+  [[ ${#p} -ge 12 ]] || issues+=("too short (${#p}/12)")
+  [[ ${#p} -le 72 ]] || issues+=("too long (${#p}/72)")
+  [[ "$p" == *[a-z]* ]] || missing+=("lowercase")
+  [[ "$p" == *[A-Z]* ]] || missing+=("uppercase")
+  [[ "$p" == *[0-9]* ]] || missing+=("digit")
+  [[ "$p" == *[^a-zA-Z0-9]* ]] || missing+=("special")
+  if (( ${#missing[@]} > 1 )); then
+    issues+=("needs at least 3 of 4 categories; missing: ${missing[*]}")
+  fi
+  printf "Password must be 12-72 chars and include at least 3 of: lowercase, uppercase, digit, special"
+  if (( ${#issues[@]} > 0 )); then
+    printf " (%s)" "$(IFS='; '; echo "${issues[*]}")"
+  fi
+  printf "."
+}
+
 # --- collect required inputs (region / zone / username / password) -----------
 collect_inputs() {
   banner "DEPLOYMENT SETTINGS  (press Enter to accept the [default])"
@@ -287,14 +319,28 @@ collect_inputs() {
       fail "No password supplied. For non-interactive runs export TF_VAR_vm_admin_password or pass --vm-password."
     fi
     while true; do
-      read -r -s -p "  VM admin password (min 12 chars, upper+lower+digit+special): " VM_PASSWORD
+      local VM_PASSWORD_CONFIRM=""
+      read -r -s -p "  VM admin password (12-72 chars, at least 3 of: upper, lower, digit, special): " VM_PASSWORD
       echo
-      [[ ${#VM_PASSWORD} -ge 12 ]] && break
-      warn "Password is ${#VM_PASSWORD} chars - Azure requires at least 12."
+      if ! password_is_valid "${VM_PASSWORD}"; then
+        warn "$(password_validation_message "${VM_PASSWORD}")"
+        continue
+      fi
+      read -r -s -p "  Confirm VM admin password: " VM_PASSWORD_CONFIRM
+      echo
+      if [[ "${VM_PASSWORD}" != "${VM_PASSWORD_CONFIRM}" ]]; then
+        warn "Passwords do not match - try again."
+        VM_PASSWORD=""
+        continue
+      fi
+      break
     done
   fi
+  if [[ -z "${VM_PASSWORD}" && -n "${TF_VAR_vm_admin_password:-}" ]]; then
+    password_is_valid "${TF_VAR_vm_admin_password}" || fail "Password must be 12-72 chars and include at least 3 of: lowercase, uppercase, digit, special."
+  fi
   if [[ -n "${VM_PASSWORD}" ]]; then
-    [[ ${#VM_PASSWORD} -ge 12 ]] || fail "Password must be at least 12 characters."
+    password_is_valid "${VM_PASSWORD}" || fail "Password must be 12-72 chars and include at least 3 of: lowercase, uppercase, digit, special."
     export TF_VAR_vm_admin_password="${VM_PASSWORD}"
     trap 'unset TF_VAR_vm_admin_password 2>/dev/null || true' EXIT
     VM_PASSWORD="(exported via TF_VAR)"
