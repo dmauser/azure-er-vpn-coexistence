@@ -64,30 +64,30 @@ For **detailed install commands** (Windows/Linux/macOS), **auth steps**, and **p
 
 ## Quick Start - Scripted Deployment
 
-The recommended path is the root deployment wrapper. It validates prerequisites, prompts for missing inputs, runs the 3-apply Terraform flow, and prints VPN verification commands.
+The recommended path is the deployment wrapper in [`scripts/`](./scripts/). It validates prerequisites, prompts for missing inputs, runs the 3-apply Terraform flow, and prints VPN verification commands.
 
 Linux / macOS:
 
 ```bash
-./deploy.sh check
-./deploy.sh deploy --project my-gcp-project --location eastus2
+./scripts/deploy.sh check
+./scripts/deploy.sh deploy --project my-gcp-project --location eastus2
 ```
 
 Windows PowerShell:
 
 ```powershell
-.\deploy.ps1 -Check
-.\deploy.ps1 -Project my-gcp-project -Location eastus2
+.\scripts\deploy.ps1 -Check
+.\scripts\deploy.ps1 -Project my-gcp-project -Location eastus2
 ```
 
 Optional ExpressRoute / Interconnect is billable and requires Megaport ordering:
 
 ```bash
-./deploy.sh deploy --expressroute --project my-gcp-project
+./scripts/deploy.sh deploy --expressroute --project my-gcp-project
 ```
 
 ```powershell
-.\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
+.\scripts\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
 ```
 
 > ✅ Re-running with the ExpressRoute flag **keeps the existing VPN connection** in place
@@ -102,12 +102,32 @@ Optional ExpressRoute / Interconnect is billable and requires Megaport ordering:
 Destroy in reverse order with:
 
 ```bash
-./deploy.sh destroy --auto-approve --project my-gcp-project
+./scripts/deploy.sh destroy --auto-approve --project my-gcp-project
 ```
 
 ```powershell
-.\deploy.ps1 -Destroy -AutoApprove -Project my-gcp-project
+.\scripts\deploy.ps1 -Destroy -AutoApprove -Project my-gcp-project
 ```
+
+Or tear down **one cloud at a time** with the dedicated cleanup scripts. Destroy
+**Azure first**, then GCP — the Azure VPN connection/Local Network Gateway are
+planned from GCP's Terraform state. The scripts use `try()` state fallbacks so
+either order works, but Azure-first is recommended:
+
+```bash
+./scripts/cleanup-azure.sh --auto-approve
+./scripts/cleanup-gcp.sh --project my-gcp-project --auto-approve
+```
+
+```powershell
+.\scripts\cleanup-azure.ps1 -AutoApprove
+.\scripts\cleanup-gcp.ps1 -Project my-gcp-project -AutoApprove
+```
+
+> `cleanup-azure` also makes a best-effort `az network vpn-connection delete` of an
+> orphaned `ER-Connection-to-Onprem` (requires `az login`; pass `-ResourceGroup` /
+> `--resource-group` if your RG isn't `lab-er-vpn-coexistence`) and copies the peer
+> state to a temp file to dodge OneDrive locks.
 
 Prefer manual Terraform only when you need the advanced 3-apply walkthrough. See **[Scripted Deployment in `terraform/README.md`](./terraform/README.md#scripted-deployment-recommended)** for the full script interface and **[Manual / Advanced 3-Apply Walkthrough](./terraform/README.md#manual--advanced-3-apply-walkthrough)** for raw Terraform commands.
 
@@ -123,7 +143,7 @@ Prefer manual Terraform only when you need the advanced 3-apply walkthrough. See
 - **Troubleshooting** — common issues and solutions
 - **VPN verification** — connection status, end-to-end ping tests
 - **[Network Test Tools](./terraform/README.md#network-test-tools)** — auto-installed VM utilities for ping, curl, iperf3, traceroute, nmap, and HTTP reachability checks
-- **[Route Inspection](./terraform/README.md#route-inspection)** — root scripts for Azure and GCP route diagnostics
+- **[Route Inspection](./terraform/README.md#route-inspection)** — `scripts/` helpers for Azure and GCP route diagnostics
 - **ExpressRoute + Interconnect** — full Megaport provisioning flow
 - **Coexistence & failover testing** — observe Azure preferring ER over VPN
 
@@ -131,7 +151,7 @@ Prefer manual Terraform only when you need the advanced 3-apply walkthrough. See
 
 ## Route inspection helpers
 
-After deployment, use the root route-dump scripts to inspect the data-path control plane. Each script verifies its CLI (`az` / `gcloud`) is installed and authenticated, shows the active subscription/project, prompts for defaults (override with flags or environment variables), and continues gracefully when a resource is disabled or not yet provisioned.
+After deployment, use the route-dump scripts in [`scripts/`](./scripts/) to inspect the data-path control plane. Each script verifies its CLI (`az` / `gcloud`) is installed and authenticated, shows the active subscription/project, prompts for defaults (override with flags or environment variables), and continues gracefully when a resource is disabled or not yet provisioned.
 
 ### Azure — `dump-routes-azure.sh` / `dump-routes-azure.ps1`
 
@@ -146,19 +166,19 @@ Prompts you to **select which components to dump** — each is independently sel
 
 ```bash
 # Interactive: choose components at the prompt
-./dump-routes-azure.sh
+./scripts/dump-routes-azure.sh
 
 # Non-interactive: dump only the VPN gateway, including advertised routes
-./dump-routes-azure.sh --components vpngw --advertised --yes
+./scripts/dump-routes-azure.sh --components vpngw --advertised --yes
 
 # Dump the ER gateway + circuit together
-./dump-routes-azure.sh --components ergw,circuit
+./scripts/dump-routes-azure.sh --components ergw,circuit
 ```
 
 ```powershell
-.\dump-routes-azure.ps1
-.\dump-routes-azure.ps1 -Components vpngw -Advertised -Yes
-.\dump-routes-azure.ps1 -Components ergw,circuit
+.\scripts\dump-routes-azure.ps1
+.\scripts\dump-routes-azure.ps1 -Components vpngw -Advertised -Yes
+.\scripts\dump-routes-azure.ps1 -Components ergw,circuit
 ```
 
 | Flag (bash) | Param (PowerShell) | Environment | Default |
@@ -179,13 +199,13 @@ Prompts you to **select which components to dump** — each is independently sel
 Prints a **friendly view**: a health summary (VPN tunnel up/down, gateway `READY`, static route present, Cloud Router/BGP state), key/value detail for the VPN tunnel, classic gateway, and tunnel-backed route, and labeled tables for VPC routes, forwarding rules, and firewall rules. Add `--raw` / `-Raw` for the full `gcloud` YAML when troubleshooting.
 
 ```bash
-./dump-routes-gcp.sh --project my-gcp-project --region us-central1
-./dump-routes-gcp.sh --project my-gcp-project --raw   # full gcloud detail
+./scripts/dump-routes-gcp.sh --project my-gcp-project --region us-central1
+./scripts/dump-routes-gcp.sh --project my-gcp-project --raw   # full gcloud detail
 ```
 
 ```powershell
-.\dump-routes-gcp.ps1 -Project my-gcp-project -Region us-central1
-.\dump-routes-gcp.ps1 -Project my-gcp-project -Raw
+.\scripts\dump-routes-gcp.ps1 -Project my-gcp-project -Region us-central1
+.\scripts\dump-routes-gcp.ps1 -Project my-gcp-project -Raw
 ```
 
 | Flag (bash) | Param (PowerShell) | Environment | Default |
@@ -215,9 +235,12 @@ The original `routes.azcli` and `routes.ps1` scripts are archived under [`archiv
 |------|---------|
 | [`terraform/azure/`](./terraform/azure/) | **Azure Terraform module** — deploys hub/spoke VNets, VPN gateway, ExpressRoute gateway, NSGs, and test VMs. Outputs: `vpn_gateway_public_ip`, `vpn_shared_key`, `expressroute_service_key`. |
 | [`terraform/gcp/`](./terraform/gcp/) | **GCP Terraform module** — deploys on-premises VPC, Classic VPN gateway, Cloud Router (optional), Partner Interconnect (optional), and test VMs. Outputs: `gcp_vpn_public_ip`, `gcp_vpc_cidr`, `interconnect_pairing_key`. |
-| [`deploy.sh`](./deploy.sh), [`deploy.ps1`](./deploy.ps1) | **Recommended deployment wrappers** — validate prerequisites, run the 3-apply Terraform flow, support optional ExpressRoute, and destroy in reverse order. |
-| [`dump-routes-azure.sh`](./dump-routes-azure.sh), [`dump-routes-azure.ps1`](./dump-routes-azure.ps1) | Azure route inspection helpers. Prompt to select which components to dump — VMs/NICs effective routes, ExpressRoute circuit routes, ExpressRoute gateway routes, and VPN gateway routes (each independently selectable). |
-| [`dump-routes-gcp.sh`](./dump-routes-gcp.sh), [`dump-routes-gcp.ps1`](./dump-routes-gcp.ps1) | GCP route inspection helpers. Print a friendly health summary (VPN tunnel, gateway, static route, BGP) plus readable VPN tunnel/route detail and labeled tables for VPC routes, forwarding rules, and firewall rules. Add `--raw`/`-Raw` for full gcloud YAML. |
+| [`scripts/`](./scripts/) | **All automation scripts** — deployment wrappers, per-cloud cleanup, and route-inspection helpers (see rows below). |
+| [`scripts/deploy.sh`](./scripts/deploy.sh), [`scripts/deploy.ps1`](./scripts/deploy.ps1) | **Recommended deployment wrappers** — validate prerequisites, run the 3-apply Terraform flow, support optional ExpressRoute, and destroy in reverse order. |
+| [`scripts/cleanup-azure.sh`](./scripts/cleanup-azure.sh), [`scripts/cleanup-azure.ps1`](./scripts/cleanup-azure.ps1) | **Azure-only teardown** — `terraform destroy` of the Azure module. Run **before** the GCP cleanup. |
+| [`scripts/cleanup-gcp.sh`](./scripts/cleanup-gcp.sh), [`scripts/cleanup-gcp.ps1`](./scripts/cleanup-gcp.ps1) | **GCP-only teardown** — `terraform destroy` of the GCP module. Run **after** the Azure cleanup. |
+| [`scripts/dump-routes-azure.sh`](./scripts/dump-routes-azure.sh), [`scripts/dump-routes-azure.ps1`](./scripts/dump-routes-azure.ps1) | Azure route inspection helpers. Prompt to select which components to dump — VMs/NICs effective routes, ExpressRoute circuit routes, ExpressRoute gateway routes, and VPN gateway routes (each independently selectable). |
+| [`scripts/dump-routes-gcp.sh`](./scripts/dump-routes-gcp.sh), [`scripts/dump-routes-gcp.ps1`](./scripts/dump-routes-gcp.ps1) | GCP route inspection helpers. Print a friendly health summary (VPN tunnel, gateway, static route, BGP) plus readable VPN tunnel/route detail and labeled tables for VPC routes, forwarding rules, and firewall rules. Add `--raw`/`-Raw` for full gcloud YAML. |
 | [`terraform/README.md`](./terraform/README.md) | **Terraform runbook** — scripted deployment, manual 3-apply order, VPN verification, ExpressRoute provisioning, route inspection, coexistence testing, and cleanup. **Start here.** |
 | [`archive/`](./archive/) | **Legacy lab automation** — original bash/PowerShell scripts and ARM/Bicep templates now superseded by Terraform. See [`archive/README.md`](./archive/README.md). Kept for reference only. |
 | [`media/`](./media/) | Architecture diagrams (Mermaid/SVG). |

@@ -98,9 +98,11 @@ note() {
 }
 
 try_terraform_circuit_name() {
-  if command -v terraform >/dev/null 2>&1 && [[ -d "terraform/azure" ]]; then
+  local az_tf_dir
+  az_tf_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/terraform/azure"
+  if command -v terraform >/dev/null 2>&1 && [[ -d "$az_tf_dir" ]]; then
     local tf_output
-    tf_output="$(terraform -chdir=terraform/azure output -raw expressroute_circuit_name 2>/dev/null)"
+    tf_output="$(terraform -chdir="$az_tf_dir" output -raw expressroute_circuit_name 2>/dev/null)"
     if [[ -n "$tf_output" && "$tf_output" != "null" ]]; then
       CIRCUIT="$tf_output"
     fi

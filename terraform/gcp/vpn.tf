@@ -56,8 +56,13 @@ resource "google_compute_vpn_tunnel" "to_azure" {
   name   = "vpn-to-azure"
   region = var.region
 
-  peer_ip                 = data.terraform_remote_state.azure.outputs.vpn_gateway_public_ip
-  shared_secret           = data.terraform_remote_state.azure.outputs.vpn_shared_key
+  # try() lets `terraform destroy` proceed even after the Azure side (and its
+  # outputs) has already been torn down — otherwise the missing remote-state
+  # attributes would abort the GCP destroy. During apply the outputs exist, so
+  # the real values are always used. The 1.2.3.4 fallback is a destroy-only
+  # placeholder chosen to pass the provider's RFC5735 peer_ip validation.
+  peer_ip                 = try(data.terraform_remote_state.azure.outputs.vpn_gateway_public_ip, "1.2.3.4")
+  shared_secret           = try(data.terraform_remote_state.azure.outputs.vpn_shared_key, "placeholder-for-destroy")
   ike_version             = 2
   local_traffic_selector  = ["0.0.0.0/0"]
   remote_traffic_selector = ["0.0.0.0/0"]

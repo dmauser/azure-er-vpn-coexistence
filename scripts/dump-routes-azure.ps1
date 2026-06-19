@@ -78,8 +78,9 @@ function Write-Note {
 }
 
 function Set-CircuitNameFromTerraform {
-    if ((Get-Command terraform -ErrorAction SilentlyContinue) -and (Test-Path -Path "terraform\azure" -PathType Container)) {
-        $tfOutput = & terraform -chdir=terraform\azure output -raw expressroute_circuit_name 2>$null
+    $azTfDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'terraform\azure'
+    if ((Get-Command terraform -ErrorAction SilentlyContinue) -and (Test-Path -Path $azTfDir -PathType Container)) {
+        $tfOutput = & terraform -chdir=$azTfDir output -raw expressroute_circuit_name 2>$null
         if ($LASTEXITCODE -eq 0 -and $tfOutput -and $tfOutput -ne "null") {
             $script:CircuitName = $tfOutput.Trim()
         }

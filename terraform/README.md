@@ -237,14 +237,14 @@ gcloud projects get-iam-policy <PROJECT_ID> --flatten="bindings[].members" --fil
 
 ## Scripted Deployment (recommended)
 
-Use the root wrapper scripts for the normal lab flow:
+Use the wrapper scripts in `scripts/` for the normal lab flow:
 
 | Shell | Script |
 |---|---|
-| Linux / macOS | `./deploy.sh` |
-| Windows PowerShell | `./deploy.ps1` |
+| Linux / macOS | `./scripts/deploy.sh` |
+| Windows PowerShell | `./scripts/deploy.ps1` |
 
-The default action is `deploy`, so `./deploy.sh` and `./deploy.sh deploy` are equivalent. The scripts validate prerequisites, collect inputs safely, run the full 3-apply order, and print post-deploy verification commands.
+The default action is `deploy`, so `./scripts/deploy.sh` and `./scripts/deploy.sh deploy` are equivalent. The scripts validate prerequisites, collect inputs safely, run the full 3-apply order, and print post-deploy verification commands.
 
 ### Subcommands
 
@@ -253,6 +253,44 @@ The default action is `deploy`, so `./deploy.sh` and `./deploy.sh deploy` are eq
 | Check only | `check` | `-Check` | Validate prerequisites only. |
 | Deploy | `deploy` | default | Prereqs plus full 3-apply deployment. |
 | Destroy | `destroy` | `-Destroy` | Reverse-order teardown: Azure first, then GCP. |
+
+For teardown of a **single cloud**, use the dedicated cleanup scripts instead of the combined `destroy` action (destroy **Azure first**, then GCP):
+
+| Target | Bash | PowerShell |
+|---|---|---|
+| Azure only | `./scripts/cleanup-azure.sh` | `./scripts/cleanup-azure.ps1` |
+| GCP only | `./scripts/cleanup-gcp.sh` | `./scripts/cleanup-gcp.ps1` |
+
+The cleanup scripts run `terraform init` + `terraform destroy` for a single module and add a few robustness steps specific to this lab:
+
+- **OneDrive lock workaround.** Each script copies the *peer* cloud's `terraform.tfstate` to a temp file outside the synced folder and points the `terraform_remote_state` data source at that copy (`-var azure_remote_state_path=…` / `-var gcp_remote_state_path=…`). This avoids the intermittent `another process has locked a portion of the file` error when state lives on OneDrive.
+- **ExpressRoute teardown.** `cleanup-azure` forces `enable_expressroute=true` and `enable_er_connection=true` so an in-state ER gateway connection is destroyed *before* the always-present ER gateway. It also makes a **best-effort `az` delete** of an orphaned `ER-Connection-to-Onprem` (a connection left in Azure but not in Terraform state) which otherwise blocks the ER gateway with `VirtualNetworkGatewayCannotBeDeleted`. This step is skipped silently if `az` is missing or not logged in.
+- **Order tolerance.** The cross-state reads in `vpn.tf` are wrapped in `try(...)`, so a per-cloud destroy still succeeds even if the peer cloud (and its outputs) was already torn down. Azure-first is still recommended, but either order now works.
+
+Cleanup script flags:
+
+| Bash | PowerShell | Applies to | Purpose |
+|---|---|---|---|
+| `--auto-approve` | `-AutoApprove` | both | Skip the Terraform confirmation. |
+| `--location <r>` | `-Location <r>` | azure | Azure region. Default: `centralus`. |
+| `--vm-username <n>` | `-VmUsername <n>` | azure | VM admin username. Default: `azureuser`. |
+| `--vm-password <p>` | `-VmPassword <secure>` | azure | Unused for destroy; a placeholder is supplied if omitted (Terraform still requires the variable). |
+| `--resource-group <rg>` | `-ResourceGroup <rg>` | azure | RG used to clear the orphaned ER connection via `az`. Default: `lab-er-vpn-coexistence`. |
+| `--project <id>` | `-Project <id>` | gcp | GCP project ID (**required** for GCP). |
+| `--region <r>` | `-Region <r>` | gcp | GCP region. Default: `us-central1`. |
+| `--zone <z>` | `-Zone <z>` | gcp | GCP zone. Default: `<region>-c`. |
+| `--caller-ip <ip>` | `-CallerIp <ip>` | gcp | Unused for destroy; a placeholder is used if omitted. |
+
+```bash
+# Per-cloud teardown (Azure first, then GCP)
+./scripts/cleanup-azure.sh --auto-approve
+./scripts/cleanup-gcp.sh --project my-gcp-project --auto-approve
+```
+
+```powershell
+.\scripts\cleanup-azure.ps1 -AutoApprove
+.\scripts\cleanup-gcp.ps1 -Project my-gcp-project -AutoApprove
+```
 
 ### Flags
 
@@ -301,31 +339,39 @@ The default action is `deploy`, so `./deploy.sh` and `./deploy.sh deploy` are eq
 Linux / macOS:
 
 ```bash
-./deploy.sh check
-./deploy.sh deploy --project my-gcp-project --location eastus2
-./deploy.sh deploy --expressroute --project my-gcp-project
-./deploy.sh destroy --auto-approve --project my-gcp-project
+./scripts/deploy.sh check
+./scripts/deploy.sh deploy --project my-gcp-project --location eastus2
+./scripts/deploy.sh deploy --expressroute --project my-gcp-project
+./scripts/deploy.sh destroy --auto-approve --project my-gcp-project
+
+# Per-cloud teardown (Azure first, then GCP):
+./scripts/cleanup-azure.sh --auto-approve
+./scripts/cleanup-gcp.sh --project my-gcp-project --auto-approve
 ```
 
 Windows PowerShell:
 
 ```powershell
-.\deploy.ps1 -Check
-.\deploy.ps1 -Project my-gcp-project -Location eastus2
-.\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
-.\deploy.ps1 -Destroy -AutoApprove -Project my-gcp-project
+.\scripts\deploy.ps1 -Check
+.\scripts\deploy.ps1 -Project my-gcp-project -Location eastus2
+.\scripts\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
+.\scripts\deploy.ps1 -Destroy -AutoApprove -Project my-gcp-project
+
+# Per-cloud teardown (Azure first, then GCP):
+.\scripts\cleanup-azure.ps1 -AutoApprove
+.\scripts\cleanup-gcp.ps1 -Project my-gcp-project -AutoApprove
 ```
 
 Non-interactive / CI usage:
 
 ```bash
 export TF_VAR_vm_admin_password='Use-A-Strong-Password-Here'
-./deploy.sh deploy --auto-approve --project my-gcp-project --location centralus --region us-central1 --zone us-central1-c --vm-username azureuser --caller-ip 203.0.113.5
+./scripts/deploy.sh deploy --auto-approve --project my-gcp-project --location centralus --region us-central1 --zone us-central1-c --vm-username azureuser --caller-ip 203.0.113.5
 ```
 
 ```powershell
 $env:TF_VAR_vm_admin_password = 'Use-A-Strong-Password-Here'
-.\deploy.ps1 -AutoApprove -Project my-gcp-project -Location centralus -Region us-central1 -Zone us-central1-c -VmUsername azureuser -CallerIp 203.0.113.5
+.\scripts\deploy.ps1 -AutoApprove -Project my-gcp-project -Location centralus -Region us-central1 -Zone us-central1-c -VmUsername azureuser -CallerIp 203.0.113.5
 ```
 
 ---
@@ -579,19 +625,19 @@ Four root diagnostic scripts dump control-plane route state after deployment. Th
 
 | Script | What it dumps |
 |---|---|
-| `dump-routes-azure.sh` / `dump-routes-azure.ps1` | Prompts for resource group (default `lab-er-vpn-coexistence`) and lets you select which components to dump: VM effective routes (NICs), ExpressRoute circuit routes for `AzurePrivatePeering` primary/secondary paths, ExpressRoute gateway routes, and VPN gateway routes — each independently selectable via the interactive prompt or `--components nics,circuit,ergw,vpngw` (`AZURE_ROUTE_COMPONENTS`). If a resource is disabled or not provisioned, the script reports that and continues. |
-| `dump-routes-gcp.sh` / `dump-routes-gcp.ps1` | Prompts for project and region (default `us-central1`) and prints a friendly view: a health summary (VPN tunnel up/down, gateway READY, static route present, Cloud Router/BGP state), key/value detail for the VPN tunnel, classic gateway, and tunnel-backed route, and labeled tables for VPC routes (static + dynamic), forwarding rules, and firewall rules. Add `--raw`/`-Raw` for the full gcloud YAML/describe output. If Interconnect/BGP is disabled or a resource is missing, the script reports it and continues. |
+| `scripts/dump-routes-azure.sh` / `scripts/dump-routes-azure.ps1` | Prompts for resource group (default `lab-er-vpn-coexistence`) and lets you select which components to dump: VM effective routes (NICs), ExpressRoute circuit routes for `AzurePrivatePeering` primary/secondary paths, ExpressRoute gateway routes, and VPN gateway routes — each independently selectable via the interactive prompt or `--components nics,circuit,ergw,vpngw` (`AZURE_ROUTE_COMPONENTS`). If a resource is disabled or not provisioned, the script reports that and continues. |
+| `scripts/dump-routes-gcp.sh` / `scripts/dump-routes-gcp.ps1` | Prompts for project and region (default `us-central1`) and prints a friendly view: a health summary (VPN tunnel up/down, gateway READY, static route present, Cloud Router/BGP state), key/value detail for the VPN tunnel, classic gateway, and tunnel-backed route, and labeled tables for VPC routes (static + dynamic), forwarding rules, and firewall rules. Add `--raw`/`-Raw` for the full gcloud YAML/describe output. If Interconnect/BGP is disabled or a resource is missing, the script reports it and continues. |
 
 Examples:
 
 ```bash
-./dump-routes-azure.sh
-./dump-routes-gcp.sh --project my-gcp-project --region us-central1
+./scripts/dump-routes-azure.sh
+./scripts/dump-routes-gcp.sh --project my-gcp-project --region us-central1
 ```
 
 ```powershell
-.\dump-routes-azure.ps1
-.\dump-routes-gcp.ps1 -Project my-gcp-project -Region us-central1
+.\scripts\dump-routes-azure.ps1
+.\scripts\dump-routes-gcp.ps1 -Project my-gcp-project -Region us-central1
 ```
 
 ### Azure script — component selection
@@ -618,14 +664,14 @@ The Azure script lets you dump any subset of components, either interactively or
 
 ```bash
 # Only the VPN gateway, with advertised routes, non-interactive
-./dump-routes-azure.sh --components vpngw --advertised --yes
+./scripts/dump-routes-azure.sh --components vpngw --advertised --yes
 # ER gateway + circuit together
-./dump-routes-azure.sh --components ergw,circuit
+./scripts/dump-routes-azure.sh --components ergw,circuit
 ```
 
 ```powershell
-.\dump-routes-azure.ps1 -Components vpngw -Advertised -Yes
-.\dump-routes-azure.ps1 -Components ergw,circuit
+.\scripts\dump-routes-azure.ps1 -Components vpngw -Advertised -Yes
+.\scripts\dump-routes-azure.ps1 -Components ergw,circuit
 ```
 
 `--advertised` auto-discovers each BGP peer and lists the routes advertised to every peer (both ER and VPN gateways).
@@ -647,11 +693,11 @@ The GCP script defaults to a friendly summary (tunnel/gateway/route/BGP health, 
 | `--no-prompt` | `-NoPrompt` | — | off (interactive) |
 
 ```bash
-./dump-routes-gcp.sh --project my-gcp-project --raw
+./scripts/dump-routes-gcp.sh --project my-gcp-project --raw
 ```
 
 ```powershell
-.\dump-routes-gcp.ps1 -Project my-gcp-project -Raw
+.\scripts\dump-routes-gcp.ps1 -Project my-gcp-project -Raw
 ```
 
 ---
@@ -661,7 +707,7 @@ The GCP script defaults to a friendly summary (tunnel/gateway/route/BGP health, 
 > ⚠️ This step provisions **billable** cloud resources and requires a **Megaport** account.
 
 > ✅ **The existing VPN is preserved.** Adding ExpressRoute does **not** tear down the
-> Site-to-Site VPN. When you re-run `deploy.sh --expressroute` / `deploy.ps1 -EnableExpressRoute`
+> Site-to-Site VPN. When you re-run `scripts/deploy.sh --expressroute` / `scripts/deploy.ps1 -EnableExpressRoute`
 > on an already-deployed lab, the wrapper detects the existing GCP deployment and keeps
 > `enable_onprem_connection=true` in Step 1, so the VPN connection and Local Network Gateway
 > stay in place. The result is true **coexistence** — VPN and ExpressRoute up at the same time.
@@ -740,7 +786,7 @@ terraform -chdir=terraform/azure output -raw expressroute_service_key
 >   --query serviceProviderProvisioningState -o tsv
 > ```
 >
-> The `deploy.sh`/`deploy.ps1` wrappers do this automatically: they create the
+> The `scripts/deploy.sh`/`scripts/deploy.ps1` wrappers do this automatically: they create the
 > circuit, print the keys, check the state, and only attach the connection when
 > the circuit is `Provisioned` — otherwise they stop and tell you to provision it
 > with the provider first.
@@ -776,7 +822,9 @@ With both VPN and ExpressRoute up, Azure's route table will prefer ExpressRoute 
 
 ## Cleanup (reverse order)
 
-> Destroy Azure first — its VPN connection references GCP state. Destroying GCP first would leave Azure with a dangling LNG reference.
+> **Easiest:** use the cleanup scripts — `./scripts/cleanup-azure.*` then `./scripts/cleanup-gcp.*` (see [Scripted Deployment → single-cloud teardown](#subcommands)). They handle the OneDrive state lock, the ExpressRoute gateway/connection teardown, and the orphaned-connection edge case automatically. The manual steps below are the raw equivalent.
+
+> Destroy Azure first — its VPN connection references GCP state. The cross-state reads in `vpn.tf` use `try(...)` fallbacks, so either order now works, but Azure-first remains the recommended sequence.
 
 **1. Destroy Azure resources:**
 
@@ -784,8 +832,15 @@ With both VPN and ExpressRoute up, Azure's route table will prefer ExpressRoute 
 terraform -chdir=terraform/azure destroy \
   -var location=centralus \
   -var vm_admin_username=azureuser \
-  -var enable_onprem_connection=true
+  -var enable_onprem_connection=true \
+  -var enable_expressroute=true \
+  -var enable_er_connection=true
 ```
+
+> `enable_expressroute=true` + `enable_er_connection=true` ensure an in-state ER gateway connection is torn down before the always-present ER gateway. For a destroy these never create anything. If `ER-Connection-to-Onprem` exists in Azure but **not** in Terraform state, delete it first so the ER gateway can be removed:
+> ```bash
+> az network vpn-connection delete -n ER-Connection-to-Onprem -g lab-er-vpn-coexistence
+> ```
 
 **2. Destroy GCP resources:**
 
@@ -837,8 +892,15 @@ This is **expected behaviour**. Azure VPN Gateway + ExpressRoute Gateway each ta
 ### ExpressRoute circuit never reaches `Provisioned`
 The Megaport VXC has not been ordered or has not activated yet. The Azure ER circuit will remain in `NotProvisioned` state until Megaport completes the cross-connect provisioning. Step 4d (`terraform apply` to attach the circuit) will fail until the circuit shows `Provisioned`. See Step 4c for Megaport VXC ordering instructions.
 
-### Destroy fails — resource dependencies or GCP dangling reference
-Always destroy in **reverse order**: Azure first, then GCP. If you accidentally destroyed GCP first, the Azure Local Network Gateway and VPN Connection may be orphaned. Import them back with `terraform import` or delete them manually in the Azure portal before re-running `terraform destroy` on Azure.
+### Destroy fails — resource dependencies, orphaned ER connection, or locked state
+Always destroy in **reverse order**: Azure first, then GCP (the cleanup scripts and the `try()` fallbacks in `vpn.tf` make either order work, but Azure-first is recommended). Common destroy failures:
+
+- **`VirtualNetworkGatewayCannotBeDeleted` — `Az-Hub-ergw` is part of `ER-Connection-to-Onprem`.** The ER gateway connection still exists. If it is tracked in state, pass `-var enable_expressroute=true -var enable_er_connection=true` so Terraform tears it down first. If it is **orphaned** (in Azure but not in state — e.g. left by an earlier failed destroy), delete it directly, then re-run: `az network vpn-connection delete -n ER-Connection-to-Onprem -g lab-er-vpn-coexistence`. `cleanup-azure.*` does both of these automatically.
+- **`data.terraform_remote_state.<peer>.outputs is object with no attributes`.** The peer cloud was already destroyed, so its outputs are gone. The `try(...)` fallbacks in `vpn.tf` resolve this; make sure you are on the current `vpn.tf` (peer reads wrapped in `try()`).
+- **`another process has locked a portion of the file`** when reading `terraform.tfstate` on OneDrive. The cleanup scripts copy the peer state to a temp file to avoid this; manually, pause OneDrive sync or copy the state out of the synced folder and pass `-var <peer>_remote_state_path=<copy>`.
+- **GCP `peer_ip` rejected** (`conflicting with RFC5735`). The destroy-only placeholder in `vpn.tf` must be a public IP outside RFC5735 (the repo uses `1.2.3.4`); `0.0.0.0` and documentation ranges are rejected by the Google provider.
+
+If you accidentally destroyed GCP first and the Azure Local Network Gateway / VPN Connection are orphaned, import them back with `terraform import` or delete them manually in the Azure portal before re-running `terraform destroy` on Azure.
 
 ### Restricted subscriptions: Standard public IP gate
 
@@ -849,7 +911,7 @@ Always destroy in **reverse order**: Azure first, then GCP. If you accidentally 
 SubscriptionNotRegisteredForFeature ... Microsoft.Network/AllowBringYourOwnPublicIpAddress
 ```
 
-**Pre-flight detection:** The `deploy.sh` / `deploy.ps1` scripts now probe for this condition before any `terraform apply` runs. If detected, the script exits immediately with full instructions.
+**Pre-flight detection:** The `scripts/deploy.sh` / `scripts/deploy.ps1` scripts now probe for this condition before any `terraform apply` runs. If detected, the script exits immediately with full instructions.
 
 **What the feature actually does:** Despite the misleading name, `Microsoft.Network/AllowBringYourOwnPublicIpAddress` is NOT about bringing your own IP prefix. It is simply a subscription-level gate that Microsoft enables by default on most subscriptions but leaves locked on certain restricted or FDPO subscriptions. Registering it unlocks normal Azure-allocated Standard public IPs — nothing else changes.
 
@@ -865,10 +927,10 @@ Then re-run the deploy script. Registration typically takes 5-15 minutes.
 
 **Bypass the pre-flight check** (if you already know the subscription is unblocked and want to skip the ~30-second probe):
 ```bash
-SKIP_PIP_PRECHECK=1 ./deploy.sh deploy ...
+SKIP_PIP_PRECHECK=1 ./scripts/deploy.sh deploy ...
 ```
 ```powershell
-$env:SKIP_PIP_PRECHECK=1; .\deploy.ps1 ...
+$env:SKIP_PIP_PRECHECK=1; .\scripts\deploy.ps1 ...
 ```
 
 ### VPN gateway SKU: AZ SKUs required (NonAzSkusNotAllowedForVPNGateway)

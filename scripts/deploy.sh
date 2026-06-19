@@ -13,7 +13,8 @@
 set -euo pipefail
 
 # --- constants ---------------------------------------------------------------
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Scripts live in <repo>/scripts; terraform dirs are resolved from the repo root.
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly AZURE_RG="lab-er-vpn-coexistence"
 readonly AZURE_VPN_CONN="Azure-to-OnpremGCP"
 readonly GCP_TUNNEL="vpn-to-azure"
@@ -596,10 +597,14 @@ run_destroy() {
   # Pass enable_onprem_connection=true so Terraform can plan the LNG + VPN connection
   # teardown while the GCP state file still exists (remote_state data source resolves).
   warn "Azure must be destroyed first - LNG and VPN connection reference GCP state."
+  # enable_expressroute/enable_er_connection forced true so an in-state ER connection is
+  # torn down BEFORE the always-present ER gateway (destroy never creates missing resources).
   tf_destroy "${AZURE_DIR}" \
     -var "location=${AZURE_LOCATION}" \
     -var "vm_admin_username=${VM_USERNAME}" \
-    -var "enable_onprem_connection=true"
+    -var "enable_onprem_connection=true" \
+    -var "enable_expressroute=true" \
+    -var "enable_er_connection=true"
 
   step "2 - Destroy GCP resources (VPN tunnel, VM, VPC, firewall)"
   tf_destroy "${GCP_DIR}" \

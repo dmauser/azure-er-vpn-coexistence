@@ -28,9 +28,12 @@ resource "azurerm_local_network_gateway" "gcp" {
   name                = "lng-onprem-gcp"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
-  gateway_address     = data.terraform_remote_state.gcp[0].outputs.gcp_vpn_public_ip
-  address_space       = [data.terraform_remote_state.gcp[0].outputs.gcp_vpc_cidr]
-  tags                = local.tags
+  # try() lets `terraform destroy` proceed even after the GCP side (and its
+  # outputs) has already been torn down. During apply the outputs exist, so the
+  # real values are always used. 1.2.3.4 is a destroy-only placeholder.
+  gateway_address = try(data.terraform_remote_state.gcp[0].outputs.gcp_vpn_public_ip, "1.2.3.4")
+  address_space   = [try(data.terraform_remote_state.gcp[0].outputs.gcp_vpc_cidr, "192.168.0.0/24")]
+  tags            = local.tags
 }
 
 # ---------------------------------------------------------------------------

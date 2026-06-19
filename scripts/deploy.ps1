@@ -85,7 +85,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 # --- constants ---------------------------------------------------------------
-$ScriptRoot       = $PSScriptRoot
+# Scripts live in <repo>/scripts; terraform dirs are resolved from the repo root.
+$ScriptRoot       = Split-Path -Parent $PSScriptRoot
 $AzureRG          = 'lab-er-vpn-coexistence'
 $AzureVpnConn     = 'Azure-to-OnpremGCP'
 $GcpTunnel        = 'vpn-to-azure'
@@ -661,11 +662,15 @@ function Invoke-TfDestroy {
     # Pass enable_onprem_connection=true so Terraform can plan the LNG + VPN connection
     # teardown while the GCP state file still exists (remote_state data source resolves).
     Write-Warn 'Azure must be destroyed first - LNG and VPN connection reference GCP state.'
+    # enable_expressroute/enable_er_connection forced true so an in-state ER connection is
+    # torn down BEFORE the always-present ER gateway (destroy never creates missing resources).
     Invoke-Tf -Chdir $AzureDir -TfArgs (@(
         'destroy', '-input=false',
         "-var=location=$($script:Location)",
         "-var=vm_admin_username=$($script:Username)",
-        '-var=enable_onprem_connection=true'
+        '-var=enable_onprem_connection=true',
+        '-var=enable_expressroute=true',
+        '-var=enable_er_connection=true'
     ) + $tfAutoApprove)
 
     Write-Step '2 - Destroy GCP resources (VPN tunnel, VM, VPC, firewall)'
