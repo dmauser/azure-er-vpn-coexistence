@@ -508,16 +508,18 @@ run_expressroute() {
     -var "caller_source_ip=${CALLER_IP}" \
     -var "enable_interconnect=true"
 
-  step "Step 4b - Azure: ExpressRoute circuit + ER gateway connection"
-  # enable_expressroute=true creates az-hub-er-circuit AND the ER gateway connection.
-  # If the circuit is not yet Provisioned (Megaport VXC not active), the connection
-  # may remain non-functional until Megaport activates; re-run with --expressroute
-  # after the circuit reaches 'Provisioned' to retry the attachment.
+  step "Step 4b - Azure: ExpressRoute circuit (gateway connection deferred)"
+  # Create the circuit ONLY (enable_er_connection=false). The ER gateway
+  # connection is attached later, and only once the provider (Megaport) has
+  # provisioned the circuit. Attaching to a circuit that is not yet
+  # 'Provisioned' on the provider side fails, so we gate it on the circuit's
+  # serviceProviderProvisioningState below.
   tf_apply "${AZURE_DIR}" \
     -var "location=${AZURE_LOCATION}" \
     -var "vm_admin_username=${VM_USERNAME}" \
     -var "enable_onprem_connection=true" \
-    -var "enable_expressroute=true"
+    -var "enable_expressroute=true" \
+    -var "enable_er_connection=false"
 
   step "Step 4c - Retrieve pairing keys for Megaport"
   echo
@@ -531,19 +533,55 @@ run_expressroute() {
     || warn "Service key not yet available."
   echo
 
-  warn "=========================================================="
-  warn "  STOP - MANUAL MEGAPORT ACTION REQUIRED BEFORE CONTINUING"
-  warn "=========================================================="
+  # -- Gate the ER gateway connection on the circuit's PROVIDER provisioning state.
+  step "Step 4d - Check ExpressRoute circuit provisioning state (provider side)"
+  CIRCUIT_STATE="$(az network express-route show \
+    --resource-group "${AZURE_RG}" \
+    --name "az-hub-er-circuit" \
+    --query "serviceProviderProvisioningState" \
+    --output tsv 2>/dev/null || true)"
+  [[ -z "${CIRCUIT_STATE}" ]] && CIRCUIT_STATE="Unknown"
+  echo "  Circuit 'az-hub-er-circuit' provider provisioning state: ${CIRCUIT_STATE}"
+  echo
+
+  if [[ "${CIRCUIT_STATE}" == "Provisioned" ]]; then
+    ok "Circuit is Provisioned at the provider - attaching the ER gateway connection."
+    step "Step 4e - Azure: attach ER circuit to the ExpressRoute gateway"
+    tf_apply "${AZURE_DIR}" \
+      -var "location=${AZURE_LOCATION}" \
+      -var "vm_admin_username=${VM_USERNAME}" \
+      -var "enable_onprem_connection=true" \
+      -var "enable_expressroute=true" \
+      -var "enable_er_connection=true"
+
+    banner "EXPRESSROUTE STAGE COMPLETE"
+    ok "Circuit Provisioned and gateway connection 'ER-Connection-to-Onprem' created."
+    ok "VPN and ExpressRoute now coexist. Inspect routes with: ./dump-routes-azure.sh"
+    unset TF_VAR_vm_admin_password || true
+    return 0
+  fi
+
+  # Circuit not yet provisioned by the provider -> stop and instruct the user.
+  warn "================================================================"
+  warn "  ACTION REQUIRED - PROVISION THE EXPRESSROUTE CIRCUIT WITH YOUR PROVIDER"
+  warn "================================================================"
+  warn "The circuit 'az-hub-er-circuit' is NOT 'Provisioned' yet (state: ${CIRCUIT_STATE})."
+  warn "The ER gateway connection was deliberately NOT created, because attaching"
+  warn "to a circuit the provider has not provisioned fails."
+  echo
+  warn "Provision the circuit with your provider using the keys printed above:"
   warn "1. Log in to https://portal.megaport.com"
   warn "2. Create a VXC to Google Cloud  ->  paste the GCP pairing key above."
   warn "3. Create a VXC to Azure ExpressRoute  ->  paste the Azure service key above."
-  warn "4. Wait for BOTH VXCs to show 'Active' in Megaport AND for the Azure ER"
-  warn "   circuit 'az-hub-er-circuit' to show 'Provisioned' in the Azure portal."
-  warn "5. Once the circuit is Provisioned, re-run this script with --expressroute"
-  warn "   to attach the ER circuit to the ER gateway (the apply is idempotent):"
+  warn "4. Wait for BOTH VXCs to show 'Active' in Megaport AND for the circuit"
+  warn "   'az-hub-er-circuit' to show serviceProviderProvisioningState='Provisioned'."
+  warn "   Check it any time with:"
+  warn "       az network express-route show -g ${AZURE_RG} -n az-hub-er-circuit --query serviceProviderProvisioningState -o tsv"
+  warn "5. Once the circuit is Provisioned, re-run this script with --expressroute."
+  warn "   It will detect the Provisioned state and attach the connection automatically:"
   warn "       ./deploy.sh deploy --expressroute [same options as before]"
   echo
-  ok "Script stopping here intentionally. Save the keys above - you need them in Megaport."
+  ok "Stopping here intentionally - the gateway connection will be created on the next run once provisioned."
   unset TF_VAR_vm_admin_password || true
   exit 0
 }

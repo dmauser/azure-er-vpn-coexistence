@@ -106,6 +106,11 @@ Optional ExpressRoute / Interconnect is billable and requires Megaport ordering:
 > ✅ Re-running with the ExpressRoute flag **keeps the existing VPN connection** in place
 > (the wrapper detects the already-deployed GCP side), so VPN and ExpressRoute run side by
 > side — the whole point of the coexistence lab.
+>
+> 🔒 The wrapper creates the ER **circuit**, prints the GCP pairing key and Azure service key,
+> then checks the circuit's provisioning state. It attaches the **ER gateway connection only
+> once the circuit is `Provisioned`** by the provider. If it isn't, the script stops and tells
+> you to provision the circuit in Megaport with the printed keys, then re-run.
 
 Destroy in reverse order with:
 

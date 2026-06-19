@@ -34,7 +34,8 @@ terraform apply
 |-------|--------|-----------------|
 | 1 — base lab | _(always)_ | RG · VNets · NSG · VPN GW · ER GW · 3 VMs |
 | 2 — VPN to GCP | `enable_onprem_connection = true` | LNG `lng-onprem-gcp` · connection `Azure-to-OnpremGCP` |
-| 3 — ExpressRoute | `enable_expressroute = true` | Circuit `az-hub-er-circuit` · connection `ER-Connection-to-Onprem` |
+| 3 — ExpressRoute circuit | `enable_expressroute = true` | Circuit `az-hub-er-circuit` (no gateway connection yet) |
+| 3b — ER gateway connection | `enable_er_connection = true` | Connection `ER-Connection-to-Onprem` (set true **only after** the circuit is `Provisioned`) |
 
 > **Phase 2 prerequisite:** GCP Terraform must be applied first so that  
 > `gcp_vpn_public_ip` and `gcp_vpc_cidr` are present in `gcp_remote_state_path`.

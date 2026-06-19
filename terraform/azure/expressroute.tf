@@ -22,10 +22,13 @@ resource "azurerm_express_route_circuit" "this" {
 # ---------------------------------------------------------------------------
 # ER Gateway Connection → ER Circuit.
 # Name matches deploy.azcli: ER-Connection-to-Onprem
-# Only proceed once the circuit is fully provisioned (provider-side step).
+# Gated on enable_er_connection (separate from the circuit) because the attach
+# only succeeds once the provider has set the circuit to 'Provisioned'. The
+# deploy wrappers create the circuit first, wait for provisioning, then enable
+# this connection.
 # ---------------------------------------------------------------------------
 resource "azurerm_virtual_network_gateway_connection" "er_to_onprem" {
-  count                      = var.enable_expressroute ? 1 : 0
+  count                      = (var.enable_expressroute && var.enable_er_connection) ? 1 : 0
   name                       = "ER-Connection-to-Onprem"
   location                   = azurerm_resource_group.this.location
   resource_group_name        = azurerm_resource_group.this.name

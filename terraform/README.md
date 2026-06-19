@@ -668,6 +668,12 @@ The GCP script defaults to a friendly summary (tunnel/gateway/route/BGP health, 
 > (When running Terraform manually, always pass `-var enable_onprem_connection=true` alongside
 > `-var enable_expressroute=true`, as shown below.)
 
+> 🔒 **The ER gateway connection waits for the provider.** The wrappers create the ExpressRoute
+> circuit, print the GCP pairing key and Azure service key, then check the circuit's
+> `serviceProviderProvisioningState`. The connection (`ER-Connection-to-Onprem`) is created
+> **only** when the circuit is `Provisioned`. If it is not, the script prints the keys and
+> stops with instructions to provision the circuit with your provider (Megaport), then re-run.
+
 ### 4a — Deploy ER circuit (Azure) and Interconnect attachment (GCP)
 
 In `terraform/gcp/terraform.tfvars`:
@@ -699,7 +705,8 @@ terraform -chdir=terraform/azure apply \
   -var location=centralus \
   -var vm_admin_username=azureuser \
   -var enable_onprem_connection=true \
-  -var enable_expressroute=true
+  -var enable_expressroute=true \
+  -var enable_er_connection=false   # circuit only - attach the connection in step 4d
 ```
 
 ### 4b — Retrieve the pairing keys
@@ -721,14 +728,32 @@ terraform -chdir=terraform/azure output -raw expressroute_service_key
 
 ### 4d — Attach the ER circuit to the ER gateway
 
-Once the circuit is provisioned, re-run the Azure apply to create the ER gateway connection:
+> 🔒 **The gateway connection is gated on circuit provisioning.** The ER gateway
+> connection (`ER-Connection-to-Onprem`) is controlled by a separate variable,
+> `enable_er_connection`, which defaults to `false`. Step 4a above creates the
+> **circuit only**. Do **not** set `enable_er_connection=true` until the circuit
+> shows `serviceProviderProvisioningState=Provisioned` — attaching to a circuit
+> the provider has not provisioned fails. Check the state with:
+>
+> ```bash
+> az network express-route show -g lab-er-vpn-coexistence -n az-hub-er-circuit \
+>   --query serviceProviderProvisioningState -o tsv
+> ```
+>
+> The `deploy.sh`/`deploy.ps1` wrappers do this automatically: they create the
+> circuit, print the keys, check the state, and only attach the connection when
+> the circuit is `Provisioned` — otherwise they stop and tell you to provision it
+> with the provider first.
+
+Once the circuit is provisioned, re-run the Azure apply with `enable_er_connection=true` to create the ER gateway connection:
 
 ```bash
 terraform -chdir=terraform/azure apply \
   -var location=centralus \
   -var vm_admin_username=azureuser \
   -var enable_onprem_connection=true \
-  -var enable_expressroute=true
+  -var enable_expressroute=true \
+  -var enable_er_connection=true
 ```
 
 This attaches circuit `az-hub-er-circuit` to the ER gateway via connection `ER-Connection-to-Onprem` (routing weight 0).
