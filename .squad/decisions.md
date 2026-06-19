@@ -451,3 +451,66 @@ The DMAUSER-FDPO subscription requires the provider feature `Microsoft.Network/A
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+## Trinity — Terraform State Recovery Session (2026-06-19)
+
+### 19. Trinity — Standard Public IP Pre-check Opt-in
+
+**Date:** 2026-06-19
+**Author:** Trinity (Azure Terraform Engineer)
+**Status:** PROPOSED
+
+## Context
+
+The Azure Standard public IP capability probe was enabled by default in both deploy scripts and skipped with SKIP_PIP_PRECHECK. The user wants the safer default to be no probe unless explicitly requested.
+
+## Decision
+
+Invert the deploy-script gate so the Standard public IP capability probe runs only when RUN_PIP_PRECHECK is set to any non-empty value.
+
+## Consequences
+
+- Default deploy pre-flight no longer creates a temporary Azure resource group or Standard public IP probe.
+- Users who want early detection on restricted subscriptions can opt in with RUN_PIP_PRECHECK=1.
+- SKIP_PIP_PRECHECK is obsolete and should not appear in user-facing docs or scripts.
+
+---
+
+### 20. Decision: Terraform Import Recovery Procedure (Interrupted Apply)
+
+**Date:** 2026-06-19
+**Author:** Trinity (Azure TF Engineer)
+**Status:** Applied
+
+## Context
+
+Machine rebooted mid terraform apply for the Azure step. Azure created Az-Hub-ergw (ER gateway) but state was never written (OneDrive lock suspected). Re-running apply failed with resource already exists for azurerm_virtual_network_gateway.er.
+
+## Decision: Use terraform import - Do Not Destroy
+
+When an interrupted apply leaves Azure resources orphaned (exist in cloud, not in state), always import rather than destroy and recreate. This applies especially to VPN/ER gateways which take 30-45 minutes to provision.
+
+## Procedure Established
+
+1. terraform state list to find what IS in state.
+2. az resource show / az network ... show to confirm orphaned resource IDs.
+3. terraform import -var=vm_admin_username=... ADDRESS AZURE_ID with placeholder password for any required-but-unneeded variables.
+4. Re-run terraform plan to confirm clean (no more already exists) and identify genuinely missing resources.
+5. Resume via ./scripts/deploy.ps1 with real password.
+
+Password placeholder note: Import and plan with placeholder password will show VM force-replacement in plan diff (admin_password forces replacement). This is a plan artifact only — NOT a real replacement when deploy.ps1 is run with the original password.
+
+## Import Executed (2026-06-19)
+
+terraform -chdir=terraform/azure import -var=vm_admin_username=azureuser azurerm_virtual_network_gateway.er /subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-er-vpn-coexistence/providers/Microsoft.Network/virtualNetworkGateways/Az-Hub-ergw
+
+## Post-Import Plan Summary
+
+- azurerm_virtual_network_gateway.er — update in-place (add pip reference)
+- azurerm_virtual_network_peering.spoke1_to_hub — create (genuinely missing)
+- azurerm_virtual_network_peering.spoke2_to_hub — create (genuinely missing)
+- 3 VMs — force-replace artifact (placeholder password) — safe to ignore; real run with correct password will not replace them
+
+## Resume Command
+
+./scripts/deploy.ps1 -AutoApprove
