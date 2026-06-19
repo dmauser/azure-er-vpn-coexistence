@@ -18,12 +18,12 @@ This lab is **fully automated via Terraform** — no manual ARM/Bicep deployment
 
 - [Architecture diagram](#architecture-diagram)
 - [Address plan](#address-plan)
-- [Repository layout](#repository-layout)
 - [Prerequisites](#prerequisites)
 - [Quick Start - Scripted Deployment](#quick-start---scripted-deployment)
 - [For full details, verification, and cleanup](#for-full-details-verification-and-cleanup)
 - [Route inspection helpers](#route-inspection-helpers)
 - [Notes on GCP Classic VPN deprecation](#notes-on-gcp-classic-vpn-deprecation)
+- [Repository layout](#repository-layout)
 - [License](#license)
 
 ## Architecture diagram
@@ -49,19 +49,6 @@ Editable source for this diagram lives in [`media/er-vpn-coexistence.mmd`](./med
 | Azure Spoke2 VNet | `10.0.12.0/24` (subnet `10.0.12.0/27`) |
 | GCP on-prem (`vpnlab`) VPC | `192.168.0.0/24` |
 | GCP second site (`vpnsite2`) VPC | `192.168.100.0/24` |
-
-## Repository layout
-
-| Path | Purpose |
-|------|---------|
-| [`terraform/azure/`](./terraform/azure/) | **Azure Terraform module** — deploys hub/spoke VNets, VPN gateway, ExpressRoute gateway, NSGs, and test VMs. Outputs: `vpn_gateway_public_ip`, `vpn_shared_key`, `expressroute_service_key`. |
-| [`terraform/gcp/`](./terraform/gcp/) | **GCP Terraform module** — deploys on-premises VPC, Classic VPN gateway, Cloud Router (optional), Partner Interconnect (optional), and test VMs. Outputs: `gcp_vpn_public_ip`, `gcp_vpc_cidr`, `interconnect_pairing_key`. |
-| [`deploy.sh`](./deploy.sh), [`deploy.ps1`](./deploy.ps1) | **Recommended deployment wrappers** — validate prerequisites, run the 3-apply Terraform flow, support optional ExpressRoute, and destroy in reverse order. |
-| [`dump-routes-azure.sh`](./dump-routes-azure.sh), [`dump-routes-azure.ps1`](./dump-routes-azure.ps1) | Azure route inspection helpers. Prompt to select which components to dump — VMs/NICs effective routes, ExpressRoute circuit routes, ExpressRoute gateway routes, and VPN gateway routes (each independently selectable). |
-| [`dump-routes-gcp.sh`](./dump-routes-gcp.sh), [`dump-routes-gcp.ps1`](./dump-routes-gcp.ps1) | GCP route inspection helpers. Print a friendly health summary (VPN tunnel, gateway, static route, BGP) plus readable VPN tunnel/route detail and labeled tables for VPC routes, forwarding rules, and firewall rules. Add `--raw`/`-Raw` for full gcloud YAML. |
-| [`terraform/README.md`](./terraform/README.md) | **Terraform runbook** — scripted deployment, manual 3-apply order, VPN verification, ExpressRoute provisioning, route inspection, coexistence testing, and cleanup. **Start here.** |
-| [`archive/`](./archive/) | **Legacy lab automation** — original bash/PowerShell scripts and ARM/Bicep templates now superseded by Terraform. See [`archive/README.md`](./archive/README.md). Kept for reference only. |
-| [`media/`](./media/) | Architecture diagrams (Mermaid/SVG). |
 
 ## Prerequisites
 
@@ -106,6 +93,11 @@ Optional ExpressRoute / Interconnect is billable and requires Megaport ordering:
 > ✅ Re-running with the ExpressRoute flag **keeps the existing VPN connection** in place
 > (the wrapper detects the already-deployed GCP side), so VPN and ExpressRoute run side by
 > side — the whole point of the coexistence lab.
+>
+> 🔒 The wrapper creates the ER **circuit**, prints the GCP pairing key and Azure service key,
+> then checks the circuit's provisioning state. It attaches the **ER gateway connection only
+> once the circuit is `Provisioned`** by the provider. If it isn't, the script stops and tells
+> you to provision the circuit in Megaport with the printed keys, then re-run.
 
 Destroy in reverse order with:
 
@@ -216,6 +208,19 @@ The original `routes.azcli` and `routes.ps1` scripts are archived under [`archiv
 > GCP has deprecated **BGP (dynamic routing) on Classic VPN** (2025‑08‑01) and recommends **HA VPN**
 > for any new dynamic-routing/SLA-backed deployments. See
 > [Classic VPN deprecation](https://cloud.google.com/network-connectivity/docs/vpn/deprecations/classic-vpn-deprecation).
+
+## Repository layout
+
+| Path | Purpose |
+|------|---------|
+| [`terraform/azure/`](./terraform/azure/) | **Azure Terraform module** — deploys hub/spoke VNets, VPN gateway, ExpressRoute gateway, NSGs, and test VMs. Outputs: `vpn_gateway_public_ip`, `vpn_shared_key`, `expressroute_service_key`. |
+| [`terraform/gcp/`](./terraform/gcp/) | **GCP Terraform module** — deploys on-premises VPC, Classic VPN gateway, Cloud Router (optional), Partner Interconnect (optional), and test VMs. Outputs: `gcp_vpn_public_ip`, `gcp_vpc_cidr`, `interconnect_pairing_key`. |
+| [`deploy.sh`](./deploy.sh), [`deploy.ps1`](./deploy.ps1) | **Recommended deployment wrappers** — validate prerequisites, run the 3-apply Terraform flow, support optional ExpressRoute, and destroy in reverse order. |
+| [`dump-routes-azure.sh`](./dump-routes-azure.sh), [`dump-routes-azure.ps1`](./dump-routes-azure.ps1) | Azure route inspection helpers. Prompt to select which components to dump — VMs/NICs effective routes, ExpressRoute circuit routes, ExpressRoute gateway routes, and VPN gateway routes (each independently selectable). |
+| [`dump-routes-gcp.sh`](./dump-routes-gcp.sh), [`dump-routes-gcp.ps1`](./dump-routes-gcp.ps1) | GCP route inspection helpers. Print a friendly health summary (VPN tunnel, gateway, static route, BGP) plus readable VPN tunnel/route detail and labeled tables for VPC routes, forwarding rules, and firewall rules. Add `--raw`/`-Raw` for full gcloud YAML. |
+| [`terraform/README.md`](./terraform/README.md) | **Terraform runbook** — scripted deployment, manual 3-apply order, VPN verification, ExpressRoute provisioning, route inspection, coexistence testing, and cleanup. **Start here.** |
+| [`archive/`](./archive/) | **Legacy lab automation** — original bash/PowerShell scripts and ARM/Bicep templates now superseded by Terraform. See [`archive/README.md`](./archive/README.md). Kept for reference only. |
+| [`media/`](./media/) | Architecture diagrams (Mermaid/SVG). |
 
 ## License
 

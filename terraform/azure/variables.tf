@@ -129,7 +129,13 @@ variable "enable_onprem_connection" {
 }
 
 variable "enable_expressroute" {
-  description = "Phase-3 toggle: creates ExpressRoute circuit (az-hub-er-circuit) + ER gateway connection (ER-Connection-to-Onprem)."
+  description = "Phase-3 toggle: creates the ExpressRoute circuit (az-hub-er-circuit). The ER gateway connection is gated separately by enable_er_connection."
+  type        = bool
+  default     = false
+}
+
+variable "enable_er_connection" {
+  description = "Phase-3b toggle: creates the ER gateway connection (ER-Connection-to-Onprem). Only set true AFTER the circuit shows serviceProviderProvisioningState=Provisioned, otherwise the attach fails. Requires enable_expressroute = true."
   type        = bool
   default     = false
 }

@@ -558,17 +558,19 @@ function Invoke-ExpressRoute {
         '-var=enable_interconnect=true'
     ) + $tfAutoApprove)
 
-    Write-Step 'Step 4b - Azure: ExpressRoute circuit + ER gateway connection'
-    # enable_expressroute=true creates az-hub-er-circuit AND the ER gateway connection.
-    # If the circuit is not yet Provisioned (Megaport VXC not active), the gateway
-    # connection may remain non-functional until Megaport activates. Re-run with
-    # -EnableExpressRoute after the circuit reaches 'Provisioned' to retry attachment.
+    Write-Step 'Step 4b - Azure: ExpressRoute circuit (gateway connection deferred)'
+    # Create the circuit ONLY (enable_er_connection=false). The ER gateway
+    # connection is attached later, and only once the provider (Megaport) has
+    # provisioned the circuit. Attaching to a circuit that is not yet
+    # 'Provisioned' on the provider side fails, so we gate it on the circuit's
+    # serviceProviderProvisioningState below.
     Invoke-Tf -Chdir $AzureDir -TfArgs (@(
         'apply', '-input=false',
         "-var=location=$($script:Location)",
         "-var=vm_admin_username=$($script:Username)",
         '-var=enable_onprem_connection=true',
-        '-var=enable_expressroute=true'
+        '-var=enable_expressroute=true',
+        '-var=enable_er_connection=false'
     ) + $tfAutoApprove)
 
     Write-Step 'Step 4c - Retrieve pairing keys for Megaport'
@@ -589,19 +591,59 @@ function Invoke-ExpressRoute {
     }
     Write-Host ''
 
-    Write-Warn ('=' * 60)
-    Write-Warn '  STOP - MANUAL MEGAPORT ACTION REQUIRED BEFORE CONTINUING'
-    Write-Warn ('=' * 60)
+    # -- Gate the ER gateway connection on the circuit's PROVIDER provisioning state.
+    Write-Step 'Step 4d - Check ExpressRoute circuit provisioning state (provider side)'
+    $circuitState = (& az network express-route show `
+            --resource-group $AzureRG `
+            --name 'az-hub-er-circuit' `
+            --query 'serviceProviderProvisioningState' `
+            --output tsv 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($circuitState)) {
+        $circuitState = 'Unknown'
+    }
+    Write-Host "  Circuit 'az-hub-er-circuit' provider provisioning state: $circuitState"
+    Write-Host ''
+
+    if ($circuitState -eq 'Provisioned') {
+        Write-Ok 'Circuit is Provisioned at the provider - attaching the ER gateway connection.'
+        Write-Step 'Step 4e - Azure: attach ER circuit to the ExpressRoute gateway'
+        Invoke-Tf -Chdir $AzureDir -TfArgs (@(
+            'apply', '-input=false',
+            "-var=location=$($script:Location)",
+            "-var=vm_admin_username=$($script:Username)",
+            '-var=enable_onprem_connection=true',
+            '-var=enable_expressroute=true',
+            '-var=enable_er_connection=true'
+        ) + $tfAutoApprove)
+
+        Write-Banner 'EXPRESSROUTE STAGE COMPLETE'
+        Write-Ok "Circuit Provisioned and gateway connection 'ER-Connection-to-Onprem' created."
+        Write-Ok 'VPN and ExpressRoute now coexist. Inspect routes with: .\dump-routes-azure.ps1'
+        Remove-Item Env:TF_VAR_vm_admin_password -ErrorAction SilentlyContinue
+        return
+    }
+
+    # Circuit not yet provisioned by the provider -> stop and instruct the user.
+    Write-Warn ('=' * 64)
+    Write-Warn '  ACTION REQUIRED - PROVISION THE EXPRESSROUTE CIRCUIT WITH YOUR PROVIDER'
+    Write-Warn ('=' * 64)
+    Write-Warn "The circuit 'az-hub-er-circuit' is NOT 'Provisioned' yet (state: $circuitState)."
+    Write-Warn 'The ER gateway connection was deliberately NOT created, because attaching'
+    Write-Warn 'to a circuit the provider has not provisioned fails.'
+    Write-Host ''
+    Write-Warn 'Provision the circuit with your provider using the keys printed above:'
     Write-Warn '1. Log in to https://portal.megaport.com'
     Write-Warn '2. Create a VXC to Google Cloud  ->  paste the GCP pairing key above.'
     Write-Warn '3. Create a VXC to Azure ExpressRoute  ->  paste the Azure service key above.'
-    Write-Warn "4. Wait for BOTH VXCs to show 'Active' in Megaport AND for the Azure ER"
-    Write-Warn "   circuit 'az-hub-er-circuit' to show 'Provisioned' in the Azure portal."
-    Write-Warn '5. Once the circuit is Provisioned, re-run this script with -EnableExpressRoute'
-    Write-Warn '   to attach the ER circuit to the ER gateway (the apply is idempotent):'
+    Write-Warn "4. Wait for BOTH VXCs to show 'Active' in Megaport AND for the circuit"
+    Write-Warn "   'az-hub-er-circuit' to show serviceProviderProvisioningState='Provisioned'."
+    Write-Warn '   Check it any time with:'
+    Write-Warn "       az network express-route show -g $AzureRG -n az-hub-er-circuit --query serviceProviderProvisioningState -o tsv"
+    Write-Warn '5. Once the circuit is Provisioned, re-run this script with -EnableExpressRoute.'
+    Write-Warn '   It will detect the Provisioned state and attach the connection automatically:'
     Write-Warn '       .\deploy.ps1 -EnableExpressRoute [same options as before]'
     Write-Host ''
-    Write-Ok 'Script stopping here intentionally. Save the keys above - you need them in Megaport.'
+    Write-Ok 'Stopping here intentionally - the gateway connection will be created on the next run once provisioned.'
 
     Remove-Item Env:TF_VAR_vm_admin_password -ErrorAction SilentlyContinue
     exit 0

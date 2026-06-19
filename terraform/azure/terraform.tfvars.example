@@ -36,8 +36,13 @@
 # enable_onprem_connection = true
 # gcp_remote_state_path    = "../gcp/terraform.tfstate"   # path to Niobe's state
 
-# ── Phase 3: enable ExpressRoute circuit + ER gateway connection ─────────────
+# ── Phase 3: enable ExpressRoute circuit (gateway connection is separate) ────
 # enable_expressroute            = true
 # express_route_peering_location = "Chicago"
 # express_route_provider         = "Megaport"
 # express_route_bandwidth_mbps   = 50
+
+# ── Phase 3b: attach the ER gateway connection ──────────────────────────────
+# Set true ONLY after the circuit shows serviceProviderProvisioningState=Provisioned
+# (the deploy.sh/deploy.ps1 wrappers gate this automatically):
+# enable_er_connection           = true
