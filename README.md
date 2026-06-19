@@ -103,6 +103,10 @@ Optional ExpressRoute / Interconnect is billable and requires Megaport ordering:
 .\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
 ```
 
+> ✅ Re-running with the ExpressRoute flag **keeps the existing VPN connection** in place
+> (the wrapper detects the already-deployed GCP side), so VPN and ExpressRoute run side by
+> side — the whole point of the coexistence lab.
+
 Destroy in reverse order with:
 
 ```bash

@@ -486,11 +486,26 @@ function Invoke-Deploy {
     Write-Host ''
 
     Invoke-Tf -Chdir $AzureDir -TfArgs @('init', '-input=false')
+
+    # Preserve the VPN on re-runs. A fresh deploy has no GCP side yet, so the
+    # on-prem VPN connection cannot exist in Step 1 (it needs GCP's public IP
+    # from remote state) and must be disabled here. But on a re-run (e.g. adding
+    # ExpressRoute) GCP is already deployed, so forcing enable_onprem_connection
+    # =false would DESTROY the existing VPN connection + Local Network Gateway.
+    # Detect a prior GCP deployment by the presence of its state file (a
+    # lock-free check that is safe even when OneDrive locks terraform.tfstate)
+    # and keep the connection in place.
+    $step1Onprem = 'false'
+    if (Test-Path (Join-Path $GcpDir 'terraform.tfstate')) {
+        $step1Onprem = 'true'
+        Write-Ok 'Existing GCP deployment detected - keeping the VPN connection in place.'
+    }
+
     Invoke-Tf -Chdir $AzureDir -TfArgs (@(
         'apply', '-input=false',
         "-var=location=$($script:Location)",
         "-var=vm_admin_username=$($script:Username)",
-        '-var=enable_onprem_connection=false'
+        "-var=enable_onprem_connection=$step1Onprem"
     ) + $tfAutoApprove)
 
     # -- Step 2: GCP ----------------------------------------------------------

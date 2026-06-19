@@ -62,3 +62,10 @@
 - **Example file updated:** `terraform/azure/terraform.tfvars.example` keeps credentials commented with note explaining script supply behavior.
 - **Decision #16 merged:** Trinity inbox decision merged into decisions.md; inbox file deleted.
 - **Orchestration log:** 2026-06-18T02-30-trinity.md
+
+### 2026-06-17 — Azure VPN Gateway AZ SKU Consolidation
+
+- **Issue:** Live deployment failed with `400 NonAzSkusNotAllowedForVPNGateway: VpnGw1-5 non-AZ SKUs are no longer supported for VPN gateways. Only VpnGw1-5AZ SKUs can be created going forward.`
+- **Root cause:** Azure has consolidated VPN gateway SKUs and now rejects legacy non-AZ variants (VpnGw1–VpnGw5).
+- **Fix applied:** `terraform/azure/variables.tf` gateway_sku default changed to `VpnGw1AZ` with validation regex `^VpnGw[1-5]AZ$`; `terraform/azure/gateways.tf` vpn_gw_pip1/pip2 now set `zones = ["1","2","3"]` for zone-redundant Standard PIPs (required by AZ SKUs); `terraform.tfvars.example` example updated to VpnGw1AZ. Verified live — Azure accepted the VpnGw1AZ create.
+- **Documentation added:** New troubleshooting subsection "VPN gateway SKU: AZ SKUs required (NonAzSkusNotAllowedForVPNGateway)" in `terraform/README.md` near the "Restricted subscriptions: Standard public IP gate" section documents the error, the AZ-only requirement, zone-redundant PIP configuration, and validation rules.

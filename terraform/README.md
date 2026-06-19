@@ -660,6 +660,14 @@ The GCP script defaults to a friendly summary (tunnel/gateway/route/BGP health, 
 
 > ⚠️ This step provisions **billable** cloud resources and requires a **Megaport** account.
 
+> ✅ **The existing VPN is preserved.** Adding ExpressRoute does **not** tear down the
+> Site-to-Site VPN. When you re-run `deploy.sh --expressroute` / `deploy.ps1 -EnableExpressRoute`
+> on an already-deployed lab, the wrapper detects the existing GCP deployment and keeps
+> `enable_onprem_connection=true` in Step 1, so the VPN connection and Local Network Gateway
+> stay in place. The result is true **coexistence** — VPN and ExpressRoute up at the same time.
+> (When running Terraform manually, always pass `-var enable_onprem_connection=true` alongside
+> `-var enable_expressroute=true`, as shown below.)
+
 ### 4a — Deploy ER circuit (Azure) and Interconnect attachment (GCP)
 
 In `terraform/gcp/terraform.tfvars`:

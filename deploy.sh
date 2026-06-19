@@ -446,10 +446,25 @@ run_deploy() {
   echo
 
   terraform -chdir="${AZURE_DIR}" init -input=false
+
+  # Preserve the VPN on re-runs. A fresh deploy has no GCP side yet, so the
+  # on-prem VPN connection cannot exist in Step 1 (it needs GCP's public IP
+  # from remote state) and must be disabled here. But on a re-run (e.g. adding
+  # ExpressRoute) GCP is already deployed, so forcing enable_onprem_connection
+  # =false would DESTROY the existing VPN connection + Local Network Gateway.
+  # Detect a prior GCP deployment by the presence of its state file (a
+  # lock-free check that is safe even when the file is locked by sync clients)
+  # and keep the connection in place.
+  STEP1_ONPREM="false"
+  if [[ -f "${GCP_DIR}/terraform.tfstate" ]]; then
+    STEP1_ONPREM="true"
+    ok "Existing GCP deployment detected - keeping the VPN connection in place."
+  fi
+
   tf_apply "${AZURE_DIR}" \
     -var "location=${AZURE_LOCATION}" \
     -var "vm_admin_username=${VM_USERNAME}" \
-    -var "enable_onprem_connection=false"
+    -var "enable_onprem_connection=${STEP1_ONPREM}"
 
   # -- Step 2: GCP ------------------------------------------------------------
   step "Step 2 - GCP (Classic VPN gateway + tunnel + firewall + VM)"
