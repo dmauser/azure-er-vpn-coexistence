@@ -10,7 +10,7 @@
 # vm_admin_password = "REPLACE_WITH_STRONG_PASSWORD!" # 12-72 chars, at least 3 of: upper, lower, digit, special (e.g. Lab@2026Secure!)
 
 # ── Optional — defaults match the lab address plan ──────────────────────────
-# resource_group_name   = "lab-er-vpn-coexistence"
+# resource_group_name   = "lab-ervpn-coexist"
 # location              = "centralus"
 
 # hub_name              = "Az-Hub"

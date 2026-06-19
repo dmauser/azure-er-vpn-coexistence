@@ -23,7 +23,7 @@ external `azure-hub-spoke-base-lab` ARM template and deploys **only what this la
 ## Deploy
 
 ```bash
-rg=lab-er-vpn-coexistence
+rg=lab-ervpn-coexist
 az group create -n $rg -l centralus
 
 # Preview (recommended)

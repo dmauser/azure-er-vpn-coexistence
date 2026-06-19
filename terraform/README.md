@@ -275,7 +275,7 @@ Cleanup script flags:
 | `--location <r>` | `-Location <r>` | azure | Azure region. Default: `centralus`. |
 | `--vm-username <n>` | `-VmUsername <n>` | azure | VM admin username. Default: `azureuser`. |
 | `--vm-password <p>` | `-VmPassword <secure>` | azure | Unused for destroy; a placeholder is supplied if omitted (Terraform still requires the variable). |
-| `--resource-group <rg>` | `-ResourceGroup <rg>` | azure | RG used to clear the orphaned ER connection via `az`. Default: `lab-er-vpn-coexistence`. |
+| `--resource-group <rg>` | `-ResourceGroup <rg>` | azure | RG used to clear the orphaned ER connection via `az`. Default: `lab-ervpn-coexist`. |
 | `--project <id>` | `-Project <id>` | gcp | GCP project ID (**required** for GCP). |
 | `--region <r>` | `-Region <r>` | gcp | GCP region. Default: `us-central1`. |
 | `--zone <z>` | `-Zone <z>` | gcp | GCP zone. Default: `<region>-c`. |
@@ -520,9 +520,8 @@ This creates:
 ```bash
 az network vpn-connection show \
   --name Azure-to-OnpremGCP \
-  --resource-group lab-er-vpn-coexistence \
+  --resource-group lab-ervpn-coexist \
   --query connectionStatus
-```
 
 Expected: `"Connected"`
 
@@ -565,7 +564,7 @@ All three should reply within the tunnel.
 Azure VMs do not have public IP addresses. Managed boot diagnostics and Serial Console are enabled on all three VMs, so use Azure Serial Console for direct access:
 
 ```bash
-az serialconsole connect --name Az-Hub-lxvm --resource-group lab-er-vpn-coexistence
+az serialconsole connect --name Az-Hub-lxvm --resource-group lab-ervpn-coexist
 ```
 
 Other VM names: `Az-Spk1-lxvm`, `Az-Spk2-lxvm`.
@@ -625,7 +624,7 @@ Four root diagnostic scripts dump control-plane route state after deployment. Th
 
 | Script | What it dumps |
 |---|---|
-| `scripts/dump-routes-azure.sh` / `scripts/dump-routes-azure.ps1` | Prompts for resource group (default `lab-er-vpn-coexistence`) and lets you select which components to dump: VM effective routes (NICs), ExpressRoute circuit routes for `AzurePrivatePeering` primary/secondary paths, ExpressRoute gateway routes, and VPN gateway routes — each independently selectable via the interactive prompt or `--components nics,circuit,ergw,vpngw` (`AZURE_ROUTE_COMPONENTS`). If a resource is disabled or not provisioned, the script reports that and continues. |
+| `scripts/dump-routes-azure.sh` / `scripts/dump-routes-azure.ps1` | Prompts for resource group (default `lab-ervpn-coexist`) and lets you select which components to dump: VM effective routes (NICs), ExpressRoute circuit routes for `AzurePrivatePeering` primary/secondary paths, ExpressRoute gateway routes, and VPN gateway routes — each independently selectable via the interactive prompt or `--components nics,circuit,ergw,vpngw` (`AZURE_ROUTE_COMPONENTS`). If a resource is disabled or not provisioned, the script reports that and continues. |
 | `scripts/dump-routes-gcp.sh` / `scripts/dump-routes-gcp.ps1` | Prompts for project and region (default `us-central1`) and prints a friendly view: a health summary (VPN tunnel up/down, gateway READY, static route present, Cloud Router/BGP state), key/value detail for the VPN tunnel, classic gateway, and tunnel-backed route, and labeled tables for VPC routes (static + dynamic), forwarding rules, and firewall rules. Add `--raw`/`-Raw` for the full gcloud YAML/describe output. If Interconnect/BGP is disabled or a resource is missing, the script reports it and continues. |
 
 Examples:
@@ -654,7 +653,7 @@ The Azure script lets you dump any subset of components, either interactively or
 | Flag (bash) | Param (PowerShell) | Environment | Default |
 |---|---|---|---|
 | `--components nics,circuit,ergw,vpngw` | `-Components` | `AZURE_ROUTE_COMPONENTS` | prompt (all) |
-| `--resource-group` | `-ResourceGroup` | `AZURE_ROUTE_RG` | `lab-er-vpn-coexistence` |
+| `--resource-group` | `-ResourceGroup` | `AZURE_ROUTE_RG` | `lab-ervpn-coexist` |
 | `--circuit-name` | `-CircuitName` | `AZURE_ROUTE_CIRCUIT` | terraform output or `az-hub-er-circuit` |
 | `--er-gateway-name` | `-ErGatewayName` | `AZURE_ROUTE_ER_GATEWAY` | `Az-Hub-ergw` |
 | `--vpn-gateway-name` | `-VpnGatewayName` | `AZURE_ROUTE_VPN_GATEWAY` | `Az-Hub-vpngw` |
@@ -782,7 +781,7 @@ terraform -chdir=terraform/azure output -raw expressroute_service_key
 > the provider has not provisioned fails. Check the state with:
 >
 > ```bash
-> az network express-route show -g lab-er-vpn-coexistence -n az-hub-er-circuit \
+> az network express-route show -g lab-ervpn-coexist -n az-hub-er-circuit \
 >   --query serviceProviderProvisioningState -o tsv
 > ```
 >
@@ -839,7 +838,7 @@ terraform -chdir=terraform/azure destroy \
 
 > `enable_expressroute=true` + `enable_er_connection=true` ensure an in-state ER gateway connection is torn down before the always-present ER gateway. For a destroy these never create anything. If `ER-Connection-to-Onprem` exists in Azure but **not** in Terraform state, delete it first so the ER gateway can be removed:
 > ```bash
-> az network vpn-connection delete -n ER-Connection-to-Onprem -g lab-er-vpn-coexistence
+> az network vpn-connection delete -n ER-Connection-to-Onprem -g lab-ervpn-coexist
 > ```
 
 **2. Destroy GCP resources:**
@@ -862,7 +861,7 @@ terraform -chdir=terraform/gcp destroy \
 
 ### VPN shows `NotConnected` / tunnel not `ESTABLISHED`
 - **Most likely cause:** You haven't finished Step 3, or Step 1's gateways haven't finished provisioning yet (gateways take 30–45 min — see Step 1 note).
-- Verify that `az network vpn-connection show --name Azure-to-OnpremGCP --resource-group lab-er-vpn-coexistence --query connectionStatus` returns `"Connected"` and not `"NotConnected"`.
+- Verify that `az network vpn-connection show --name Azure-to-OnpremGCP --resource-group lab-ervpn-coexist --query connectionStatus` returns `"Connected"` and not `"NotConnected"`.
 - Check that the shared key and peer IPs are sourced automatically from state — no manual entry needed. If you modified either tfvars file after apply, run `terraform apply` again on both modules.
 - Verify the GCP firewall rule `vpnlab-allow-traffic-from-azure` was created (it allows `10.0.0.0/8`).
 
@@ -895,7 +894,7 @@ The Megaport VXC has not been ordered or has not activated yet. The Azure ER cir
 ### Destroy fails — resource dependencies, orphaned ER connection, or locked state
 Always destroy in **reverse order**: Azure first, then GCP (the cleanup scripts and the `try()` fallbacks in `vpn.tf` make either order work, but Azure-first is recommended). Common destroy failures:
 
-- **`VirtualNetworkGatewayCannotBeDeleted` — `Az-Hub-ergw` is part of `ER-Connection-to-Onprem`.** The ER gateway connection still exists. If it is tracked in state, pass `-var enable_expressroute=true -var enable_er_connection=true` so Terraform tears it down first. If it is **orphaned** (in Azure but not in state — e.g. left by an earlier failed destroy), delete it directly, then re-run: `az network vpn-connection delete -n ER-Connection-to-Onprem -g lab-er-vpn-coexistence`. `cleanup-azure.*` does both of these automatically.
+- **`VirtualNetworkGatewayCannotBeDeleted` — `Az-Hub-ergw` is part of `ER-Connection-to-Onprem`.** The ER gateway connection still exists. If it is tracked in state, pass `-var enable_expressroute=true -var enable_er_connection=true` so Terraform tears it down first. If it is **orphaned** (in Azure but not in state — e.g. left by an earlier failed destroy), delete it directly, then re-run: `az network vpn-connection delete -n ER-Connection-to-Onprem -g lab-ervpn-coexist`. `cleanup-azure.*` does both of these automatically.
 - **`data.terraform_remote_state.<peer>.outputs is object with no attributes`.** The peer cloud was already destroyed, so its outputs are gone. The `try(...)` fallbacks in `vpn.tf` resolve this; make sure you are on the current `vpn.tf` (peer reads wrapped in `try()`).
 - **`another process has locked a portion of the file`** when reading `terraform.tfstate` on OneDrive. The cleanup scripts copy the peer state to a temp file to avoid this; manually, pause OneDrive sync or copy the state out of the synced folder and pass `-var <peer>_remote_state_path=<copy>`.
 - **GCP `peer_ip` rejected** (`conflicting with RFC5735`). The destroy-only placeholder in `vpn.tf` must be a public IP outside RFC5735 (the repo uses `1.2.3.4`); `0.0.0.0` and documentation ranges are rejected by the Google provider.

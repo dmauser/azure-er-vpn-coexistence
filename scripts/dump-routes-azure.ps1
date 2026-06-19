@@ -8,7 +8,7 @@ Dump Azure route views for the ER/VPN coexistence lab.
   [-Components <nics,circuit,ergw,vpngw|all>] [-Advertised] [-Yes]
 
 .PARAMETER ResourceGroup
-Azure resource group. Defaults to AZURE_ROUTE_RG or lab-er-vpn-coexistence.
+Azure resource group. Defaults to AZURE_ROUTE_RG or lab-ervpn-coexist.
 
 .PARAMETER CircuitName
 ExpressRoute circuit name. Defaults to AZURE_ROUTE_CIRCUIT,
@@ -36,7 +36,7 @@ Non-interactive mode; accept defaults and active subscription.
 
 [CmdletBinding()]
 param(
-    [string]$ResourceGroup = $(if ($env:AZURE_ROUTE_RG) { $env:AZURE_ROUTE_RG } else { "lab-er-vpn-coexistence" }),
+    [string]$ResourceGroup = $(if ($env:AZURE_ROUTE_RG) { $env:AZURE_ROUTE_RG } else { "lab-ervpn-coexist" }),
     [string]$CircuitName = $(if ($env:AZURE_ROUTE_CIRCUIT) { $env:AZURE_ROUTE_CIRCUIT } else { "az-hub-er-circuit" }),
     [string]$ErGatewayName = $(if ($env:AZURE_ROUTE_ER_GATEWAY) { $env:AZURE_ROUTE_ER_GATEWAY } else { "Az-Hub-ergw" }),
     [string]$VpnGatewayName = $(if ($env:AZURE_ROUTE_VPN_GATEWAY) { $env:AZURE_ROUTE_VPN_GATEWAY } else { "Az-Hub-vpngw" }),

@@ -87,7 +87,7 @@ Set-StrictMode -Version Latest
 # --- constants ---------------------------------------------------------------
 # Scripts live in <repo>/scripts; terraform dirs are resolved from the repo root.
 $ScriptRoot       = Split-Path -Parent $PSScriptRoot
-$AzureRG          = 'lab-er-vpn-coexistence'
+$DefaultAzureRG   = 'lab-ervpn-coexist'
 $AzureVpnConn     = 'Azure-to-OnpremGCP'
 $GcpTunnel        = 'vpn-to-azure'
 $AzureDir         = 'terraform/azure'
@@ -109,6 +109,7 @@ $script:Username = $VmUsername
 $script:Location = $Location
 $script:Region   = $Region
 $script:Zone     = $Zone
+$script:AzureRG  = ''
 
 # --- output helpers ----------------------------------------------------------
 function Write-Banner([string]$Text) {
@@ -379,9 +380,19 @@ function Get-RequiredInputs {
         else { $script:Zone = $zdefault }
     }
 
+    # Azure resource group
+    if (-not $script:AzureRG) {
+        if ($interactive) {
+            $in = Read-Host "  Azure resource group [$DefaultAzureRG]"
+            $script:AzureRG = if ($in) { $in } else { $DefaultAzureRG }
+        }
+        else { $script:AzureRG = $DefaultAzureRG }
+    }
+
     Write-Ok "VM admin username: $($script:Username)"
     Write-Ok "Azure location:    $($script:Location)"
     Write-Ok "GCP region / zone: $($script:Region) / $($script:Zone)"
+    Write-Ok "Azure resource group: $($script:AzureRG)"
 
     # VM admin password - stored in TF_VAR_vm_admin_password env var so Terraform
     # reads it automatically and it never appears on a command line.
@@ -445,7 +456,7 @@ function Invoke-VpnVerify {
     Write-Step 'Azure - VPN connection status'
     $connStatus = & az network vpn-connection show `
         --name $AzureVpnConn `
-        --resource-group $AzureRG `
+        --resource-group $script:AzureRG `
         --query connectionStatus `
         --output tsv 2>$null
     if ($LASTEXITCODE -eq 0 -and $connStatus) {
@@ -473,7 +484,7 @@ function Invoke-VpnVerify {
     Write-Ok "  To force Cloud IAP tunnel: gcloud compute ssh vpnlab-vm1 --zone $($script:Zone) --tunnel-through-iap"
 
     Write-Step 'Azure VMs (no public IP) - use Serial Console'
-    Write-Ok "  az serialconsole connect --name Az-Hub-lxvm --resource-group $AzureRG"
+    Write-Ok "  az serialconsole connect --name Az-Hub-lxvm --resource-group $script:AzureRG"
     Write-Ok '  (or Azure portal > VM > Help > Serial console). Sign in with the VM admin credentials.'
 }
 
@@ -511,6 +522,7 @@ function Invoke-Deploy {
         'apply', '-input=false',
         "-var=location=$($script:Location)",
         "-var=vm_admin_username=$($script:Username)",
+        "-var=resource_group_name=$($script:AzureRG)",
         "-var=enable_onprem_connection=$step1Onprem"
     ) + $tfAutoApprove)
 
@@ -532,6 +544,7 @@ function Invoke-Deploy {
         'apply', '-input=false',
         "-var=location=$($script:Location)",
         "-var=vm_admin_username=$($script:Username)",
+        "-var=resource_group_name=$($script:AzureRG)",
         '-var=enable_onprem_connection=true'
     ) + $tfAutoApprove)
 
@@ -574,6 +587,7 @@ function Invoke-ExpressRoute {
         'apply', '-input=false',
         "-var=location=$($script:Location)",
         "-var=vm_admin_username=$($script:Username)",
+        "-var=resource_group_name=$($script:AzureRG)",
         '-var=enable_onprem_connection=true',
         '-var=enable_expressroute=true',
         '-var=enable_er_connection=false'
@@ -651,7 +665,7 @@ function Invoke-ExpressRoute {
     # -- Gate the ER gateway connection on the circuit's PROVIDER provisioning state.
     Write-Step 'Step 4d - Check ExpressRoute circuit provisioning state (provider side)'
     $circuitState = (& az network express-route show `
-            --resource-group $AzureRG `
+            --resource-group $script:AzureRG `
             --name 'az-hub-er-circuit' `
             --query 'serviceProviderProvisioningState' `
             --output tsv 2>$null)
@@ -668,6 +682,7 @@ function Invoke-ExpressRoute {
             'apply', '-input=false',
             "-var=location=$($script:Location)",
             "-var=vm_admin_username=$($script:Username)",
+            "-var=resource_group_name=$($script:AzureRG)",
             '-var=enable_onprem_connection=true',
             '-var=enable_expressroute=true',
             '-var=enable_er_connection=true'
@@ -695,7 +710,7 @@ function Invoke-ExpressRoute {
     Write-Warn "4. Wait for BOTH VXCs to show 'Active' in Megaport AND for the circuit"
     Write-Warn "   'az-hub-er-circuit' to show serviceProviderProvisioningState='Provisioned'."
     Write-Warn '   Check it any time with:'
-    Write-Warn "       az network express-route show -g $AzureRG -n az-hub-er-circuit --query serviceProviderProvisioningState -o tsv"
+    Write-Warn "       az network express-route show -g $script:AzureRG -n az-hub-er-circuit --query serviceProviderProvisioningState -o tsv"
     Write-Warn '5. Once the circuit is Provisioned, re-run this script with -EnableExpressRoute.'
     Write-Warn '   It will detect the Provisioned state and attach the connection automatically:'
     Write-Warn '       .\deploy.ps1 -EnableExpressRoute [same options as before]'
@@ -724,6 +739,7 @@ function Invoke-TfDestroy {
         'destroy', '-input=false',
         "-var=location=$($script:Location)",
         "-var=vm_admin_username=$($script:Username)",
+        "-var=resource_group_name=$($script:AzureRG)",
         '-var=enable_onprem_connection=true',
         '-var=enable_expressroute=true',
         '-var=enable_er_connection=true'

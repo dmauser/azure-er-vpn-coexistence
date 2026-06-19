@@ -18,7 +18,7 @@
 #   --vm-username    VM admin username used at deploy time (default: azureuser).
 #   --vm-password    VM admin password (irrelevant for destroy; placeholder used
 #                    if omitted, since Terraform still requires the variable).
-#   --resource-group Azure resource group (default: lab-er-vpn-coexistence). Used to
+#   --resource-group Azure resource group (default: lab-ervpn-coexist). Used to
 #                    clear an orphaned ExpressRoute connection before destroy (needs az).
 #   --auto-approve   Skip the 'yes' confirmation for terraform destroy.
 
@@ -38,7 +38,7 @@ fail()   { printf "${RED}  [x]   ERROR: %s${NC}\n" "$*" >&2; exit 1; }
 LOCATION="centralus"
 VM_USERNAME="azureuser"
 VM_PASSWORD=""
-RESOURCE_GROUP="lab-er-vpn-coexistence"
+RESOURCE_GROUP="lab-ervpn-coexist"
 AUTO_APPROVE_FLAG=""
 
 while [[ $# -gt 0 ]]; do

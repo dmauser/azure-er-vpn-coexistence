@@ -29,7 +29,7 @@
     Skip the interactive 'yes' confirmation for terraform destroy.
 
 .PARAMETER ResourceGroup
-    Azure resource group (default: lab-er-vpn-coexistence). Used to clear an orphaned
+    Azure resource group (default: lab-ervpn-coexist). Used to clear an orphaned
     ExpressRoute gateway connection (via az) before destroy so the ER gateway can be deleted.
 
 .EXAMPLE
@@ -43,7 +43,7 @@ param(
     [string]       $Location    = 'centralus',
     [string]       $VmUsername  = 'azureuser',
     [SecureString] $VmPassword,
-    [string]       $ResourceGroup = 'lab-er-vpn-coexistence',
+    [string]       $ResourceGroup = 'lab-ervpn-coexist',
     [switch]       $AutoApprove
 )
 

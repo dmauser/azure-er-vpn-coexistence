@@ -115,4 +115,12 @@ terraform -chdir=terraform/azure import `
 ```
 (Re-run will detect existing GCP state, keep `enable_onprem_connection=true`, apply only what is missing.)
 
-**OneDrive state-lock prevention:** The state file lives at `terraform/azure/terraform.tfstate` on an OneDrive-synced path. If apply fails with a file-lock error, pause OneDrive sync temporarily (`Pause syncing > 2 hours`) before retrying. Local state on OneDrive is susceptible to file locks during sync events.
+
+### 2026-06-19 — Default RG rename + interactive prompt
+
+- **New default RG name:** `lab-ervpn-coexist` (was `lab-er-vpn-coexistence`). Changed everywhere a hardcoded default existed: `terraform/azure/variables.tf`, `scripts/deploy.ps1`, `scripts/deploy.sh`, `scripts/cleanup-azure.ps1`, `scripts/cleanup-azure.sh`, `scripts/dump-routes-azure.ps1`, `scripts/dump-routes-azure.sh`, `terraform/azure/terraform.tfvars` (comment), `terraform/azure/terraform.tfvars.example` (comment), `terraform/README.md`, `README.md`, `archive/bicep/README.md`.
+- **Interactive RG prompt (deploy.ps1):** `$DefaultAzureRG = 'lab-ervpn-coexist'` is the constant. `$script:AzureRG = ''` is initialized in the mutable state section. In `Get-RequiredInputs`, after the GCP zone block, an interactive-guarded prompt sets `$script:AzureRG` from user input or falls back to `$DefaultAzureRG` when empty or non-interactive.
+- **Interactive RG prompt (deploy.sh):** `readonly DEFAULT_RG="lab-ervpn-coexist"` is the constant. `AZURE_RG=""` is in the mutable state section (NOT readonly). In `collect_inputs`, after the GCP zone block, `read -r -p "  Azure resource group [${DEFAULT_RG}]: "` sets `AZURE_RG` with `${in:-${DEFAULT_RG}}` fallback.
+- **How the value flows to terraform:** Every `tf_apply`/`tf_destroy` call for `${AZURE_DIR}` (and `Invoke-Tf -Chdir $AzureDir`) now includes `-var resource_group_name=${AZURE_RG}` (bash) or `-var=resource_group_name=$($script:AzureRG)` (PowerShell). This overrides the default in `variables.tf` so the prompted RG name is what Terraform provisions. The `az` CLI calls in VPN verification and ExpressRoute status checks also use `$script:AzureRG` / `${AZURE_RG}`, keeping az and Terraform perfectly in sync.
+- **Non-interactive / -AutoApprove path:** Both scripts silently fall back to `$DefaultAzureRG` / `${DEFAULT_RG}` when not interactive, so existing automation / CI is unaffected.
+

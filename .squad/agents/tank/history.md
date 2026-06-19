@@ -91,7 +91,27 @@ Both return `Success! The configuration is valid.` with providers already initia
 
 **Decision written:** `.squad/decisions/inbox/tank-cross-state-contract.md`
 
-### 2026-06-17 — Session finalization (Scribe: decisions merged, orchestration logs)
+### 2026-06-19 — Megaport key polling (task: megaport-key-poll)
+
+**Scope:** Replaced single-shot Terraform output reads in Step 4c of both deploy.ps1 and deploy.sh with polling loops that retry until both keys are non-empty or a timeout is reached.
+
+**Output names confirmed:**
+- GCP Partner Interconnect pairing key: `interconnect_pairing_key` (in `terraform/gcp`)
+- Azure ExpressRoute service key: `expressroute_service_key` (in `terraform/azure`)
+Both are `sensitive = true` in their respective `outputs.tf`. `terraform output -raw` returns the raw string value for sensitive outputs without redaction — safe to capture into a variable.
+
+**Polling design:**
+- Interval: 30 s; timeout: 1 800 s (30 min). Both stored in tunable constants at script top.
+  - PS1: `$KeyPollIntervalSec` / `$KeyPollTimeoutSec` (lines ~98-101)
+  - Bash: `KEY_POLL_INTERVAL` / `KEY_POLL_TIMEOUT` (readonly, lines ~28-31)
+- Each cycle independently tracks which key is still missing; stops polling a key as soon as it's captured. Prints elapsed time + pending key names between cycles.
+- On timeout: falls back to the existing warn-and-continue behavior so the script still exits cleanly. Ctrl-C terminates via the existing `set -euo pipefail` / `$ErrorActionPreference = Stop` paths.
+- Polling only runs inside `Invoke-ExpressRoute` / `run_expressroute` — gated by `-EnableExpressRoute` / `--expressroute` flag. Not executed for normal VPN-only deploys.
+- Once both keys are captured they are printed with cyan labels and the existing Megaport portal instructions follow naturally.
+
+**Syntax checks passed:**
+- `Parser::ParseFile` → 0 errors (deploy.ps1)
+- `bash -n deploy.sh` → exit 0
 
 - Terraform revamp finalized and validated by Morpheus (all gates passed)
 - Deploy wrapper scripts and success audit work committed as per Scribe orchestration log

@@ -209,7 +209,7 @@ Look for `status: ESTABLISHED`.
 **From the Azure side** (requires Azure CLI and Serial Console access to the Hub VM):
 ```bash
 az network vpn-connection list \
-  --resource-group lab-er-vpn-coexistence \
+  --resource-group lab-ervpn-coexist \
   --output table
 ```
 
@@ -232,7 +232,7 @@ gcloud compute vpn-tunnels describe vpn-to-azure --project my-gcp-project --regi
 ```bash
 az network vpn-connection show \
   --name Azure-to-OnpremGCP \
-  --resource-group lab-er-vpn-coexistence \
+  --resource-group lab-ervpn-coexist \
   --output table
 ```
 
@@ -249,7 +249,7 @@ ping 10.0.10.10 -c 4
 ```bash
 # Azure: check route table for 192.168.0.0/24 via VPN Gateway
 az network route-table route list \
-  --resource-group lab-er-vpn-coexistence \
+  --resource-group lab-ervpn-coexist \
   --route-table-name hub-rt \
   --output table
 
@@ -308,7 +308,7 @@ Once provisioned, the VPN stays active as a **backup path**. Azure will prefer E
    ```bash
    az network express-route show \
      --name az-hub-er-circuit \
-     --resource-group lab-er-vpn-coexistence \
+     --resource-group lab-ervpn-coexist \
      --output table
    ```
    Look for `provisioningState: Succeeded` and `circuitProvisioningState: Provisioned`.
@@ -377,7 +377,7 @@ Check that resources are gone:
 
 **Azure:**
 ```bash
-az network vnet list --resource-group lab-er-vpn-coexistence --output table
+az network vnet list --resource-group lab-ervpn-coexist --output table
 ```
 Should be empty.
 
@@ -440,7 +440,7 @@ gcloud compute vpn-tunnels describe vpn-to-azure --project my-gcp-project --regi
 ```bash
 az network vpn-connection show \
   --name Azure-to-OnpremGCP \
-  --resource-group lab-er-vpn-coexistence \
+  --resource-group lab-ervpn-coexist \
   --output json | jq '.connectionStatus, .connectionProtocol'
 ```
 
@@ -458,7 +458,7 @@ terraform apply -auto-approve
 ```bash
 # Azure: does hub route table have a route to 192.168.0.0/24?
 az network route-table route list \
-  --resource-group lab-er-vpn-coexistence \
+  --resource-group lab-ervpn-coexist \
   --route-table-name hub-rt \
   --output table
 
@@ -470,7 +470,7 @@ gcloud compute routes list --project my-gcp-project --filter="network:vpnlab"
 ```bash
 # Azure: is there an inbound NSG rule allowing ICMP from 192.168.0.0/24?
 az network nsg rule list \
-  --resource-group lab-er-vpn-coexistence \
+  --resource-group lab-ervpn-coexist \
   --nsg-name hub-nsg \
   --output table
 ```
@@ -489,7 +489,7 @@ gcloud compute firewall-rules list --project my-gcp-project --filter="network:vp
 ```bash
 az network express-route show \
   --name az-hub-er-circuit \
-  --resource-group lab-er-vpn-coexistence
+  --resource-group lab-ervpn-coexist
 ```
 
 **Fix:**
@@ -544,7 +544,7 @@ Prompts you to **select which components to dump** — each is independently sel
 | Flag (bash) | Param (PowerShell) | Environment | Default |
 |---|---|---|---|
 | `--components` | `-Components` | `AZURE_ROUTE_COMPONENTS` | prompt (all) |
-| `--resource-group` | `-ResourceGroup` | `AZURE_ROUTE_RG` | `lab-er-vpn-coexistence` |
+| `--resource-group` | `-ResourceGroup` | `AZURE_ROUTE_RG` | `lab-ervpn-coexist` |
 | `--circuit-name` | `-CircuitName` | `AZURE_ROUTE_CIRCUIT` | terraform output or `az-hub-er-circuit` |
 | `--er-gateway-name` | `-ErGatewayName` | `AZURE_ROUTE_ER_GATEWAY` | `Az-Hub-ergw` |
 | `--vpn-gateway-name` | `-VpnGatewayName` | `AZURE_ROUTE_VPN_GATEWAY` | `Az-Hub-vpngw` |

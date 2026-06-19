@@ -21,7 +21,7 @@
 
 set -u
 
-DEFAULT_RG="lab-er-vpn-coexistence"
+DEFAULT_RG="lab-ervpn-coexist"
 DEFAULT_CIRCUIT="az-hub-er-circuit"
 DEFAULT_ER_GW="Az-Hub-ergw"
 DEFAULT_VPN_GW="Az-Hub-vpngw"

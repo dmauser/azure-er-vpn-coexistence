@@ -15,7 +15,6 @@ set -euo pipefail
 # --- constants ---------------------------------------------------------------
 # Scripts live in <repo>/scripts; terraform dirs are resolved from the repo root.
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly AZURE_RG="lab-er-vpn-coexistence"
 readonly AZURE_VPN_CONN="Azure-to-OnpremGCP"
 readonly GCP_TUNNEL="vpn-to-azure"
 readonly AZURE_DIR="terraform/azure"
@@ -25,6 +24,7 @@ readonly GCP_DIR="terraform/gcp"
 readonly DEFAULT_USERNAME="azureuser"
 readonly DEFAULT_LOCATION="centralus"
 readonly DEFAULT_REGION="us-central1"
+readonly DEFAULT_RG="lab-ervpn-coexist"
 
 # --- Megaport key polling tunables -------------------------------------------
 # How long to wait between polls (seconds) and when to give up (seconds).
@@ -44,6 +44,7 @@ VM_PASSWORD=""
 AZURE_LOCATION=""
 GCP_REGION=""
 GCP_ZONE=""
+AZURE_RG=""
 
 # --- output helpers ----------------------------------------------------------
 RED='\033[0;31m'
@@ -354,9 +355,20 @@ collect_inputs() {
     fi
   fi
 
+  # Azure resource group
+  if [[ -z "${AZURE_RG}" ]]; then
+    if [[ "${interactive}" == "true" ]]; then
+      read -r -p "  Azure resource group [${DEFAULT_RG}]: " in
+      AZURE_RG="${in:-${DEFAULT_RG}}"
+    else
+      AZURE_RG="${DEFAULT_RG}"
+    fi
+  fi
+
   ok "VM admin username: ${VM_USERNAME}"
   ok "Azure location:    ${AZURE_LOCATION}"
   ok "GCP region / zone: ${GCP_REGION} / ${GCP_ZONE}"
+  ok "Azure resource group: ${AZURE_RG}"
 
   # VM admin password - never echoed; passed to Terraform via TF_VAR_ env var
   # so it never appears in the process list (ps aux) or shell history.
@@ -470,6 +482,7 @@ run_deploy() {
   tf_apply "${AZURE_DIR}" \
     -var "location=${AZURE_LOCATION}" \
     -var "vm_admin_username=${VM_USERNAME}" \
+    -var "resource_group_name=${AZURE_RG}" \
     -var "enable_onprem_connection=${STEP1_ONPREM}"
 
   # -- Step 2: GCP ------------------------------------------------------------
@@ -487,6 +500,7 @@ run_deploy() {
   tf_apply "${AZURE_DIR}" \
     -var "location=${AZURE_LOCATION}" \
     -var "vm_admin_username=${VM_USERNAME}" \
+    -var "resource_group_name=${AZURE_RG}" \
     -var "enable_onprem_connection=true"
 
   verify_vpn
@@ -523,6 +537,7 @@ run_expressroute() {
   tf_apply "${AZURE_DIR}" \
     -var "location=${AZURE_LOCATION}" \
     -var "vm_admin_username=${VM_USERNAME}" \
+    -var "resource_group_name=${AZURE_RG}" \
     -var "enable_onprem_connection=true" \
     -var "enable_expressroute=true" \
     -var "enable_er_connection=false"
@@ -615,6 +630,7 @@ run_expressroute() {
     tf_apply "${AZURE_DIR}" \
       -var "location=${AZURE_LOCATION}" \
       -var "vm_admin_username=${VM_USERNAME}" \
+      -var "resource_group_name=${AZURE_RG}" \
       -var "enable_onprem_connection=true" \
       -var "enable_expressroute=true" \
       -var "enable_er_connection=true"
@@ -666,6 +682,7 @@ run_destroy() {
   tf_destroy "${AZURE_DIR}" \
     -var "location=${AZURE_LOCATION}" \
     -var "vm_admin_username=${VM_USERNAME}" \
+    -var "resource_group_name=${AZURE_RG}" \
     -var "enable_onprem_connection=true" \
     -var "enable_expressroute=true" \
     -var "enable_er_connection=true"

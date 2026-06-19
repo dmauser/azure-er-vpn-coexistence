@@ -4,7 +4,7 @@
 variable "resource_group_name" {
   description = "Name of the Azure resource group"
   type        = string
-  default     = "lab-er-vpn-coexistence"
+  default     = "lab-ervpn-coexist"
 }
 
 variable "location" {
