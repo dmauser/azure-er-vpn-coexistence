@@ -42,3 +42,17 @@ Findings:
 - All 14 decisions merged into `.squad/decisions.md` from inbox; inbox files deleted
 - Orchestration log written: 2026-06-17T20_47_00-morpheus.md
 - Ready for team commit: Terraform + docs + scripts all validated and secure
+
+### 2026-06-17 — Reviewer Gate: Azure VPN AZ SKU Hotfix
+
+**Verdict: APPROVED.**
+
+Reviewed uncommitted changes for Azure's `NonAzSkusNotAllowedForVPNGateway` enforcement.
+
+Key observations:
+1. `gateway_sku` now defaults to `VpnGw1AZ`, and validation `^VpnGw[1-5]AZ$` correctly allows only `VpnGw1AZ` through `VpnGw5AZ`.
+2. Zone-redundant PIPs (`zones = ["1", "2", "3"]`) are applied only to `vpn_gw_pip1` and `vpn_gw_pip2`; `er_gw_pip` remains unchanged Standard/Static.
+3. Fresh-deploy correctness checks clean: VPN gateway still consumes `var.gateway_sku`; example tfvars and README align with the new default.
+4. `terraform -chdir=terraform\azure validate` passes.
+
+APPROVE.
