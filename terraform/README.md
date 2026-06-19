@@ -911,7 +911,7 @@ If you accidentally destroyed GCP first and the Azure Local Network Gateway / VP
 SubscriptionNotRegisteredForFeature ... Microsoft.Network/AllowBringYourOwnPublicIpAddress
 ```
 
-**Pre-flight detection:** The `scripts/deploy.sh` / `scripts/deploy.ps1` scripts now probe for this condition before any `terraform apply` runs. If detected, the script exits immediately with full instructions.
+**Optional pre-flight detection:** The `scripts/deploy.sh` / `scripts/deploy.ps1` scripts can probe for this condition before any `terraform apply` runs. The probe is off by default; set `RUN_PIP_PRECHECK=1` to enable it. If detected, the script exits immediately with full instructions.
 
 **What the feature actually does:** Despite the misleading name, `Microsoft.Network/AllowBringYourOwnPublicIpAddress` is NOT about bringing your own IP prefix. It is simply a subscription-level gate that Microsoft enables by default on most subscriptions but leaves locked on certain restricted or FDPO subscriptions. Registering it unlocks normal Azure-allocated Standard public IPs — nothing else changes.
 
@@ -925,12 +925,12 @@ Then re-run the deploy script. Registration typically takes 5-15 minutes.
 
 **Alternative:** Use an unrestricted Azure subscription where Standard public IPs work without any feature registration.
 
-**Bypass the pre-flight check** (if you already know the subscription is unblocked and want to skip the ~30-second probe):
+**Run the pre-flight check** (optional; useful before deploying on a new or restricted subscription):
 ```bash
-SKIP_PIP_PRECHECK=1 ./scripts/deploy.sh deploy ...
+RUN_PIP_PRECHECK=1 ./scripts/deploy.sh deploy ...
 ```
 ```powershell
-$env:SKIP_PIP_PRECHECK=1; .\scripts\deploy.ps1 ...
+$env:RUN_PIP_PRECHECK=1; .\scripts\deploy.ps1 ...
 ```
 
 ### VPN gateway SKU: AZ SKUs required (NonAzSkusNotAllowedForVPNGateway)

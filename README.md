@@ -12,15 +12,20 @@ This lab is **fully automated via Terraform** — no manual ARM/Bicep deployment
 
 > ⚠️ **Cost warning:** This lab provisions VPN/ExpressRoute gateways, an ExpressRoute circuit, and a
 > partner cross-connect (Megaport). These are **billed hourly** and the ExpressRoute portion requires
-> a real provider order. Always run the **Clean up** section when finished.
+> a real provider order. Always run the **Cleanup** section when finished.
 
 ## Contents
 
 - [Architecture diagram](#architecture-diagram)
 - [Address plan](#address-plan)
-- [Prerequisites](#prerequisites)
-- [Quick Start - Scripted Deployment](#quick-start---scripted-deployment)
-- [For full details, verification, and cleanup](#for-full-details-verification-and-cleanup)
+- [Pre-flight Checklist](#pre-flight-checklist)
+- [How this lab works (3-apply flow)](#how-this-lab-works-3-apply-flow)
+- [Quick Start (experienced users)](#quick-start-experienced-users)
+- [First-time guided deployment](#first-time-guided-deployment)
+- [Success checkpoints](#success-checkpoints)
+- [Optional ExpressRoute + Megaport](#optional-expressroute--megaport)
+- [Cleanup (destroy resources)](#cleanup-destroy-resources)
+- [Troubleshooting jumpstart](#troubleshooting-jumpstart)
 - [Route inspection helpers](#route-inspection-helpers)
 - [Notes on GCP Classic VPN deprecation](#notes-on-gcp-classic-vpn-deprecation)
 - [Repository layout](#repository-layout)
@@ -50,57 +55,78 @@ Editable source for this diagram lives in [`media/er-vpn-coexistence.mmd`](./med
 | GCP on-prem (`vpnlab`) VPC | `192.168.0.0/24` |
 | GCP second site (`vpnsite2`) VPC | `192.168.100.0/24` |
 
-## Prerequisites
+## Pre-flight Checklist
 
-| Requirement | Minimum |
-|---|---|
-| Terraform | ≥ 1.5 (tested with 1.15.x) |
-| Azure CLI | ≥ 2.5x, authenticated with Contributor on target subscription |
-| gcloud CLI | authenticated with Application Default Credentials |
-| GCP project | existing project ID with billing enabled |
-| Megaport account | **only needed for Step 4 (ExpressRoute/Interconnect)** — optional |
+Verify these before starting. A missed item is the #1 cause of failed first runs.
 
-For **detailed install commands** (Windows/Linux/macOS), **auth steps**, and **permission verification**, see **[Requirements & Setup in `terraform/README.md`](./terraform/README.md#requirements--setup)**.
+**Tools & CLIs:**
+- [ ] **Terraform ≥ 1.5** — run `terraform -version`
+- [ ] **Azure CLI installed** — run `az version`
+- [ ] **gcloud CLI installed** — run `gcloud --version`
 
-## Quick Start - Scripted Deployment
+**Authentication & credentials:**
+- [ ] **Azure login done** — run `az login` (or `az login --use-device-code` for headless shells)
+- [ ] **Correct Azure subscription set** — run `az account show --output table` and verify
+- [ ] **GCP user login done** — run `gcloud auth login`
+- [ ] **GCP Application Default Credentials set** — run `gcloud auth application-default login`
+- [ ] **GCP project configured** — run `gcloud config set project <PROJECT_ID>` with your project
+- [ ] **Compute Engine API enabled in GCP** — run `gcloud services enable compute.googleapis.com`
 
-The recommended path is the deployment wrapper in [`scripts/`](./scripts/). It validates prerequisites, prompts for missing inputs, runs the 3-apply Terraform flow, and prints VPN verification commands.
+**Configuration:**
+- [ ] **Your public IP captured** (needed for GCP firewall allow-list):
+  ```bash
+  # Linux/macOS
+  curl -4 ifconfig.io
+  # Windows PowerShell
+  (Invoke-RestMethod -Uri 'https://ifconfig.io')
+  ```
+  Note: If your ISP/VPN reassigns IPs between sessions, you will need to update GCP `caller_source_ip` and re-apply.
 
-Linux / macOS:
+- [ ] **Strong VM password chosen** — Azure requires ≥ 12 characters with at least 3 of: uppercase, lowercase, digit, special character.
 
+For detailed install steps (Windows/Linux/macOS) and permission checks, see **[Requirements & Setup in `terraform/README.md`](./terraform/README.md#requirements--setup)**.
+
+## How this lab works (3-apply flow)
+
+The deployment uses a **3-step Terraform apply** to break circular dependencies between Azure and GCP:
+
+1. **Azure base** (Step 1)  
+   - Creates Azure VNets, VPN Gateway, ExpressRoute Gateway, and test VMs.
+   - After apply, the VPN Gateway has a public IP and a pre-shared key. ✅
+   
+2. **GCP full** (Step 2)  
+   - Reads the Azure VPN Gateway public IP and pre-shared key from Azure state.
+   - Creates GCP VPC, Classic VPN gateway, VPN tunnel (now has its own public IP), and test VMs.
+   - After apply, GCP gateway public IP is ready. ✅
+   
+3. **Azure connection** (Step 3)  
+   - Reads the GCP gateway public IP from GCP state.
+   - Creates the Azure Local Network Gateway and VPN connection.
+   - Tunnel comes up. VPN verified. ✅
+
+**Why this order?** Azure needs its IP to seed GCP's tunnel config. GCP needs to output its IP so Azure can build the connection. A single apply would deadlock; three sequential applies resolve it.
+
+The deployment scripts handle this automatically. For manual Terraform, see **[Manual 3-Apply Walkthrough in `terraform/README.md`](./terraform/README.md#manual--advanced-3-apply-walkthrough)**.
+
+---
+
+## Quick Start (experienced users)
+
+If you have already completed the pre-flight checklist and are comfortable with Terraform:
+
+**Linux / macOS:**
 ```bash
-./scripts/deploy.sh check
+./scripts/deploy.sh check           # Validate prerequisites
 ./scripts/deploy.sh deploy --project my-gcp-project --location eastus2
 ```
 
-Windows PowerShell:
-
+**Windows PowerShell:**
 ```powershell
 .\scripts\deploy.ps1 -Check
 .\scripts\deploy.ps1 -Project my-gcp-project -Location eastus2
 ```
 
-Optional ExpressRoute / Interconnect is billable and requires Megaport ordering:
-
-```bash
-./scripts/deploy.sh deploy --expressroute --project my-gcp-project
-```
-
-```powershell
-.\scripts\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
-```
-
-> ✅ Re-running with the ExpressRoute flag **keeps the existing VPN connection** in place
-> (the wrapper detects the already-deployed GCP side), so VPN and ExpressRoute run side by
-> side — the whole point of the coexistence lab.
->
-> 🔒 The wrapper creates the ER **circuit**, prints the GCP pairing key and Azure service key,
-> then checks the circuit's provisioning state. It attaches the **ER gateway connection only
-> once the circuit is `Provisioned`** by the provider. If it isn't, the script stops and tells
-> you to provision the circuit in Megaport with the printed keys, then re-run.
-
-Destroy in reverse order with:
-
+For destroy (reverse order: Azure first, then GCP):
 ```bash
 ./scripts/deploy.sh destroy --auto-approve --project my-gcp-project
 ```
@@ -109,43 +135,377 @@ Destroy in reverse order with:
 .\scripts\deploy.ps1 -Destroy -AutoApprove -Project my-gcp-project
 ```
 
-Or tear down **one cloud at a time** with the dedicated cleanup scripts. Destroy
-**Azure first**, then GCP — the Azure VPN connection/Local Network Gateway are
-planned from GCP's Terraform state. The scripts use `try()` state fallbacks so
-either order works, but Azure-first is recommended:
+---
+
+## First-time guided deployment
+
+Follow these steps in order if this is your first time, or if you want to understand the process.
+
+### Step 1: Clone the repository and navigate to it
 
 ```bash
-./scripts/cleanup-azure.sh --auto-approve
-./scripts/cleanup-gcp.sh --project my-gcp-project --auto-approve
+git clone https://github.com/dmauser/azure-er-vpn-coexistence2.git
+cd azure-er-vpn-coexistence2
 ```
 
+### Step 2: Verify the pre-flight checklist
+
+Go back to the **[Pre-flight Checklist](#pre-flight-checklist)** above and tick every box. Open a terminal and run the commands listed. If any command fails, stop and fix it before proceeding.
+
+### Step 3: Decide on location and credentials
+
+Decide on:
+- **Azure location** (e.g., `eastus2`, `westeurope`, `centralus`) — defaults to `centralus`
+- **GCP region** (e.g., `us-central1`, `europe-west1`) — defaults to `us-central1`
+- **VM admin username** (e.g., `azureuser`) — used for RDP/Serial Console access
+- **VM admin password** — must be ≥ 12 characters with uppercase, lowercase, digit, and special character
+
+### Step 4: Run the deployment script with your values
+
+**Linux / macOS:**
+```bash
+./scripts/deploy.sh deploy \
+  --project my-gcp-project \
+  --location eastus2 \
+  --region us-central1 \
+  --vm-username azureuser \
+  --vm-password 'YourP@ss123!'
+```
+
+**Windows PowerShell:**
 ```powershell
-.\scripts\cleanup-azure.ps1 -AutoApprove
-.\scripts\cleanup-gcp.ps1 -Project my-gcp-project -AutoApprove
+.\scripts\deploy.ps1 `
+  -Project my-gcp-project `
+  -Location eastus2 `
+  -Region us-central1 `
+  -VmUsername azureuser `
+  -VmPassword 'YourP@ss123!'
 ```
 
-> `cleanup-azure` also makes a best-effort `az network vpn-connection delete` of an
-> orphaned `ER-Connection-to-Onprem` (requires `az login`; pass `-ResourceGroup` /
-> `--resource-group` if your RG isn't `lab-er-vpn-coexistence`) and copies the peer
-> state to a temp file to dodge OneDrive locks.
+> **Note:** If you don't provide `--vm-password` / `-VmPassword`, the script will prompt you to enter it securely. The same applies for other unspecified arguments.
 
-Prefer manual Terraform only when you need the advanced 3-apply walkthrough. See **[Scripted Deployment in `terraform/README.md`](./terraform/README.md#scripted-deployment-recommended)** for the full script interface and **[Manual / Advanced 3-Apply Walkthrough](./terraform/README.md#manual--advanced-3-apply-walkthrough)** for raw Terraform commands.
+### Step 5: Watch the deployment
+
+The script will:
+1. Validate all prerequisites and print a summary.
+2. Run the **Azure base** apply (creates VPN Gateway).
+3. Run the **GCP full** apply (creates tunnel with Azure's IP).
+4. Run the **Azure connection** apply (completes the VPN).
+5. Print success messages and next steps.
+
+The first run typically takes **10–15 minutes** depending on region and Terraform state initialization.
+
+### Step 6: Verify the VPN is up
+
+Once deployment finishes, the script prints verification commands. To manually verify:
+
+**From the GCP side:**
+```bash
+gcloud compute vpn-tunnels describe vpn-to-azure --project my-gcp-project --region us-central1
+```
+
+Look for `status: ESTABLISHED`.
+
+**From the Azure side** (requires Azure CLI and Serial Console access to the Hub VM):
+```bash
+az network vpn-connection list \
+  --resource-group lab-er-vpn-coexistence \
+  --output table
+```
+
+Look for `ConnectionStatus: Connected`.
 
 ---
 
-## For full details, verification, and cleanup
+## Success checkpoints
 
-→ **[See `terraform/README.md`](./terraform/README.md)** for:
-- **Pre-flight checklist** — what to verify before applying
-- **Requirements & Setup** — install commands, auth steps, permission checks
-- **Scripted Deployment** — recommended root wrappers for check, deploy, ExpressRoute, and destroy
-- **Detailed step-by-step** with all Terraform variables and examples
-- **Troubleshooting** — common issues and solutions
-- **VPN verification** — connection status, end-to-end ping tests
-- **[Network Test Tools](./terraform/README.md#network-test-tools)** — auto-installed VM utilities for ping, curl, iperf3, traceroute, nmap, and HTTP reachability checks
-- **[Route Inspection](./terraform/README.md#route-inspection)** — `scripts/` helpers for Azure and GCP route diagnostics
-- **ExpressRoute + Interconnect** — full Megaport provisioning flow
-- **Coexistence & failover testing** — observe Azure preferring ER over VPN
+Your deployment is **complete and working** when:
+
+✅ **Terraform apply(s) complete** with no errors.
+
+✅ **GCP VPN tunnel status is `ESTABLISHED`:**
+```bash
+gcloud compute vpn-tunnels describe vpn-to-azure --project my-gcp-project --region us-central1 | grep status
+```
+
+✅ **Azure VPN connection status is `Connected`:**
+```bash
+az network vpn-connection show \
+  --name Azure-to-OnpremGCP \
+  --resource-group lab-er-vpn-coexistence \
+  --output table
+```
+
+✅ **End-to-end ping works** (from GCP to Azure VM across the tunnel):
+```bash
+# SSH into GCP test VM, then ping the Azure Hub VM
+# GCP VM IP: 192.168.0.10 → Azure Hub VM IP: 10.0.10.10
+gcloud compute ssh vm-onprem --project my-gcp-project --zone us-central1-c
+# Inside GCP VM:
+ping 10.0.10.10 -c 4
+```
+
+✅ **Route entries exist** in both clouds:
+```bash
+# Azure: check route table for 192.168.0.0/24 via VPN Gateway
+az network route-table route list \
+  --resource-group lab-er-vpn-coexistence \
+  --route-table-name hub-rt \
+  --output table
+
+# GCP: check route for 10.0.10.0/24 via VPN tunnel
+gcloud compute routes list --project my-gcp-project --filter="name:vpn*"
+```
+
+If any checkpoint fails, see **[Troubleshooting jumpstart](#troubleshooting-jumpstart)** below.
+
+---
+
+## Optional ExpressRoute + Megaport
+
+Once the VPN is working, you can add **ExpressRoute + Partner Interconnect** to test coexistence and failover.
+
+> 🔔 **Important:** ExpressRoute and Megaport provisioning involves **third-party ordering and billing**. Read the section below before proceeding.
+
+### What it requires
+
+- **Megaport account** — free to sign up at https://www.megaport.com. You control and pay for the service.
+- **Megaport service setup** — Megaport hosts the cross-connect between you and GCP. This is a **real service** — it is billable and requires manual provisioning steps.
+- **ExpressRoute service key** — Azure generates this; Megaport uses it to create the service.
+- **GCP Partner Interconnect pairing key** — GCP generates this; Megaport uses it to create the connection.
+
+### Cost note
+
+- **ExpressRoute circuit** (Azure): billable from the moment it is created, even if not yet connected.
+- **Megaport service** (third-party): typically $25–50 USD/month for a lab-scale 1 Gbps port.
+- **GCP Partner Interconnect**: free (you pay Megaport for the cross-connect).
+
+Once provisioned, the VPN stays active as a **backup path**. Azure will prefer ExpressRoute (lower BGP metric) over VPN for normal operations.
+
+### Provisioning steps
+
+1. **Deploy ExpressRoute circuit and Megaport service:**
+   ```bash
+   ./scripts/deploy.sh deploy --expressroute --project my-gcp-project
+   ```
+   ```powershell
+   .\scripts\deploy.ps1 -EnableExpressRoute -Project my-gcp-project
+   ```
+
+2. **Script output will print:**
+   - **ExpressRoute service key** — copy this
+   - **GCP Partner Interconnect pairing key** — copy this
+   - **Megaport deployment name** (e.g., `Megaport-ER-GCP-2024-06-19...`)
+
+3. **In Megaport portal:**
+   - Log in to https://portal.megaport.com
+   - Create a new **Port** (1 Gbps, select Azure region matching your ExpressRoute circuit location)
+   - Create a **Virtual Cross Connect** from the Port to Azure (paste the service key you copied)
+   - Create another **Virtual Cross Connect** to GCP Partner Interconnect (paste the GCP pairing key)
+   - Wait for status to change to `UP` (typically 5–15 minutes)
+
+4. **Verify circuit is provisioned:**
+   ```bash
+   az network express-route show \
+     --name az-hub-er-circuit \
+     --resource-group lab-er-vpn-coexistence \
+     --output table
+   ```
+   Look for `provisioningState: Succeeded` and `circuitProvisioningState: Provisioned`.
+
+5. **Verify GCP Interconnect is up:**
+   ```bash
+   gcloud compute interconnects attachments describe er-to-onprem-vlan \
+     --project my-gcp-project \
+     --region us-central1
+   ```
+   Look for `state: ACTIVE`.
+
+For a deeper walkthrough, see **[ExpressRoute + Interconnect in `terraform/README.md`](./terraform/README.md#expressroute--interconnect)**.
+
+---
+
+## Cleanup (destroy resources)
+
+Always clean up when you are finished to avoid ongoing charges.
+
+> ⚠️ **Order matters:** Destroy **Azure first**, then **GCP**.  
+> Why? The Azure VPN connection references the GCP Gateway IP in the Local Network Gateway. If GCP is destroyed first, Azure's state refers to a non-existent resource. The cleanup scripts use state fallbacks to handle either order, but Azure-first is recommended and cleaner.
+
+### Option A: Full destroy (recommended)
+
+Destroys both Azure and GCP in the correct order:
+
+**Linux / macOS:**
+```bash
+./scripts/deploy.sh destroy --auto-approve --project my-gcp-project
+```
+
+**Windows PowerShell:**
+```powershell
+.\scripts\deploy.ps1 -Destroy -AutoApprove -Project my-gcp-project
+```
+
+### Option B: Cloud-by-cloud cleanup
+
+For granular control, clean each cloud separately. Always do **Azure first**:
+
+**Azure cleanup (always first):**
+```bash
+./scripts/cleanup-azure.sh --auto-approve
+```
+```powershell
+.\scripts\cleanup-azure.ps1 -AutoApprove
+```
+
+Then **GCP cleanup:**
+```bash
+./scripts/cleanup-gcp.sh --project my-gcp-project --auto-approve
+```
+```powershell
+.\scripts\cleanup-gcp.ps1 -Project my-gcp-project -AutoApprove
+```
+
+### Cleanup details
+
+- **`cleanup-azure.sh/ps1`** removes the Azure Hub and Spoke VNets, VPN Gateway, ExpressRoute Gateway, and test VMs. It also attempts to clean up any orphaned `ER-Connection-to-Onprem` (failover artifact). Requires `az login`.
+- **`cleanup-gcp.sh/ps1`** removes the GCP VPC, Classic VPN gateway, test VM, and optionally the Partner Interconnect if it was created.
+
+### Verify deletion
+
+Check that resources are gone:
+
+**Azure:**
+```bash
+az network vnet list --resource-group lab-er-vpn-coexistence --output table
+```
+Should be empty.
+
+**GCP:**
+```bash
+gcloud compute networks list --project my-gcp-project --filter="name:vpnlab"
+```
+Should be empty.
+
+---
+
+## Troubleshooting jumpstart
+
+### Issue: Terraform plan/apply fails with "subscription not found"
+
+**Cause:** Azure CLI is not authenticated or the subscription is not set.
+
+**Fix:**
+```bash
+az login
+az account show --output table
+az account set --subscription <SUBSCRIPTION_ID>
+```
+
+### Issue: "gcloud" not in PATH or command not found
+
+**Cause:** gcloud SDK is not installed or not in your shell's PATH.
+
+**Fix:**
+- **Windows:** Install via `winget install Google.CloudSDK` and restart your terminal.
+- **Linux/macOS:** Run `curl https://sdk.cloud.google.com | bash`, then restart your terminal.
+- Verify: `gcloud --version`
+
+### Issue: GCP VPN tunnel status is `DOWN` or `UNKNOWN`
+
+**Cause:** IKE/IPsec negotiation is failing (usually bad pre-shared key, wrong public IPs, firewall blocking).
+
+**Check:**
+```bash
+# View tunnel detail
+gcloud compute vpn-tunnels describe vpn-to-azure --project my-gcp-project --region us-central1
+
+# View tunnel error logs
+gcloud compute vpn-tunnels describe vpn-to-azure --project my-gcp-project --region us-central1 | grep -i error
+```
+
+**Common fixes:**
+- Verify the Azure VPN Gateway public IP matches what GCP tunnel is configured to reach. Check Terraform outputs:
+  ```bash
+  cd terraform/azure && terraform output vpn_gateway_public_ip
+  cd ../gcp && terraform output gcp_vpn_public_ip
+  ```
+- Verify the pre-shared key matches in both clouds. Regenerate if needed and run the 3-apply cycle again.
+
+### Issue: Azure VPN connection shows `Unknown` or `Disconnected`
+
+**Cause:** Azure hasn't picked up the GCP gateway IP, or the connection resource is misconfigured.
+
+**Check:**
+```bash
+az network vpn-connection show \
+  --name Azure-to-OnpremGCP \
+  --resource-group lab-er-vpn-coexistence \
+  --output json | jq '.connectionStatus, .connectionProtocol'
+```
+
+**Fix:** Re-run the Azure connection apply (Step 3 of the 3-apply):
+```bash
+cd terraform/azure
+terraform apply -auto-approve
+```
+
+### Issue: Ping test fails between VMs
+
+**Cause:** NSG firewall rules are blocking traffic, or routes are missing.
+
+**Check routes:**
+```bash
+# Azure: does hub route table have a route to 192.168.0.0/24?
+az network route-table route list \
+  --resource-group lab-er-vpn-coexistence \
+  --route-table-name hub-rt \
+  --output table
+
+# GCP: does VPC have a route to 10.0.10.0/24?
+gcloud compute routes list --project my-gcp-project --filter="network:vpnlab"
+```
+
+**Check NSGs:**
+```bash
+# Azure: is there an inbound NSG rule allowing ICMP from 192.168.0.0/24?
+az network nsg rule list \
+  --resource-group lab-er-vpn-coexistence \
+  --nsg-name hub-nsg \
+  --output table
+```
+
+**Check firewall rules:**
+```bash
+# GCP: is there an ingress firewall rule allowing ICMP from 10.0.10.0/24?
+gcloud compute firewall-rules list --project my-gcp-project --filter="network:vpnlab"
+```
+
+### Issue: ExpressRoute circuit stays in `ProvisioningState: NotProvisioned`
+
+**Cause:** Megaport hasn't created and activated the service yet, or the service key wasn't used correctly.
+
+**Check:**
+```bash
+az network express-route show \
+  --name az-hub-er-circuit \
+  --resource-group lab-er-vpn-coexistence
+```
+
+**Fix:**
+1. Log in to Megaport portal.
+2. Verify the Virtual Cross Connect exists and status is `UP`.
+3. Check that the service key was correctly entered in Megaport.
+4. Wait 10–15 minutes and re-check. Megaport provisioning can be slow.
+5. If still stuck, contact Megaport support.
+
+### Issue: I want to destroy ExpressRoute but keep VPN
+
+**Cause:** You want to test failover or reduce costs temporarily.
+
+**Fix:** Run `terraform destroy` on just the ExpressRoute resources in the Terraform state, or delete the ExpressRoute circuit in the Azure portal. The VPN will remain active.
+
+---
 
 ---
 
@@ -221,6 +581,8 @@ Prints a **friendly view**: a health summary (VPN tunnel up/down, gateway `READY
 | `--no-prompt` | `-NoPrompt` | — | off (interactive) |
 
 The original `routes.azcli` and `routes.ps1` scripts are archived under [`archive/`](./archive/README.md) for reference only.
+
+---
 
 ## Notes on GCP Classic VPN deprecation
 

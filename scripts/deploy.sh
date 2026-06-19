@@ -26,6 +26,12 @@ readonly DEFAULT_USERNAME="azureuser"
 readonly DEFAULT_LOCATION="centralus"
 readonly DEFAULT_REGION="us-central1"
 
+# --- Megaport key polling tunables -------------------------------------------
+# How long to wait between polls (seconds) and when to give up (seconds).
+# 1800 s = 30 min; GCP VLAN attachments / Azure ER circuits can take 20+ min.
+readonly KEY_POLL_INTERVAL=30
+readonly KEY_POLL_TIMEOUT=1800
+
 # --- mutable state (overridable via flags / prompts) -------------------------
 MODE="deploy"
 AUTO_APPROVE_FLAG=""
@@ -190,8 +196,8 @@ check_prereqs() {
   # -- Standard public IP capability ------------------------------------------
   step "Azure Standard public IP capability"
 
-  if [[ -n "${SKIP_PIP_PRECHECK:-}" ]]; then
-    ok "Standard public IP pre-check skipped (SKIP_PIP_PRECHECK set)"
+  if [[ -z "${RUN_PIP_PRECHECK:-}" ]]; then
+    ok "Standard public IP pre-check skipped (set RUN_PIP_PRECHECK=1 to enable)"
   else
     pip_rg="tfpreflight-pip-$RANDOM"
     az group create -n "${pip_rg}" -l eastus &>/dev/null \
@@ -215,8 +221,7 @@ Fix it once on this subscription (then re-run this script):
   az feature show --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress --query properties.state -o tsv   # wait until: Registered
   az provider register --namespace Microsoft.Network
 
-Or deploy on a subscription that is not restricted (Standard public IPs work with no setup).
-To bypass this check, set SKIP_PIP_PRECHECK=1."
+Or deploy on a subscription that is not restricted (Standard public IPs work with no setup)."
     else
       fail "Could not create a test Standard public IP (unexpected error): ${probe_out}"
     fi
@@ -522,16 +527,75 @@ run_expressroute() {
     -var "enable_expressroute=true" \
     -var "enable_er_connection=false"
 
-  step "Step 4c - Retrieve pairing keys for Megaport"
-  echo
-  printf "${CYN}  GCP Partner Interconnect pairing key  ->  paste into Megaport 'Google Cloud' VXC:${NC}\n"
-  terraform -chdir="${GCP_DIR}" output -raw interconnect_pairing_key 2>/dev/null \
-    || warn "Pairing key not yet available - the VLAN attachment may still be provisioning."
+  step "Step 4c - Wait for Megaport keys (GCP pairing key + Azure service key)"
+  printf "  Polling every %ds, timeout %ds (~%d min).\n" \
+    "${KEY_POLL_INTERVAL}" "${KEY_POLL_TIMEOUT}" "$((KEY_POLL_TIMEOUT / 60))"
+  printf "  Press Ctrl-C at any time to abort (keys will not be displayed).\n"
   echo
 
-  printf "${CYN}  Azure ExpressRoute service key  ->  paste into Megaport 'Azure ExpressRoute' VXC:${NC}\n"
-  terraform -chdir="${AZURE_DIR}" output -raw expressroute_service_key 2>/dev/null \
-    || warn "Service key not yet available."
+  PAIRING_KEY=""
+  SERVICE_KEY=""
+  POLL_START="$(date +%s)"
+
+  while true; do
+    # Try GCP pairing key if not yet captured.
+    if [[ -z "${PAIRING_KEY}" ]]; then
+      _k="$(terraform -chdir="${GCP_DIR}" output -raw interconnect_pairing_key 2>/dev/null || true)"
+      if [[ -n "${_k}" ]]; then
+        PAIRING_KEY="${_k}"
+        ok "GCP pairing key captured."
+      fi
+    fi
+
+    # Try Azure service key if not yet captured.
+    if [[ -z "${SERVICE_KEY}" ]]; then
+      _k="$(terraform -chdir="${AZURE_DIR}" output -raw expressroute_service_key 2>/dev/null || true)"
+      if [[ -n "${_k}" ]]; then
+        SERVICE_KEY="${_k}"
+        ok "Azure service key captured."
+      fi
+    fi
+
+    # Both keys in hand -> exit polling loop.
+    if [[ -n "${PAIRING_KEY}" && -n "${SERVICE_KEY}" ]]; then
+      break
+    fi
+
+    ELAPSED=$(( $(date +%s) - POLL_START ))
+
+    # Check timeout.
+    if (( ELAPSED >= KEY_POLL_TIMEOUT )); then
+      warn "Key polling timed out after ${ELAPSED}s."
+      break
+    fi
+
+    # Report which keys are still pending.
+    PENDING=""
+    [[ -z "${PAIRING_KEY}" ]] && PENDING="GCP pairing key"
+    if [[ -z "${SERVICE_KEY}" ]]; then
+      [[ -n "${PENDING}" ]] && PENDING="${PENDING}, "
+      PENDING="${PENDING}Azure service key"
+    fi
+    printf "${YLW}  [%ds elapsed]  Still waiting for: %s ...${NC}\n" "${ELAPSED}" "${PENDING}"
+
+    sleep "${KEY_POLL_INTERVAL}"
+  done
+
+  echo
+  if [[ -n "${PAIRING_KEY}" ]]; then
+    printf "${CYN}  GCP Partner Interconnect pairing key  ->  paste into Megaport 'Google Cloud' VXC:${NC}\n"
+    printf "    %s\n" "${PAIRING_KEY}"
+  else
+    warn "GCP pairing key not available - the VLAN attachment may still be provisioning."
+  fi
+  echo
+
+  if [[ -n "${SERVICE_KEY}" ]]; then
+    printf "${CYN}  Azure ExpressRoute service key  ->  paste into Megaport 'Azure ExpressRoute' VXC:${NC}\n"
+    printf "    %s\n" "${SERVICE_KEY}"
+  else
+    warn "Azure service key not available - the ER circuit may still be provisioning."
+  fi
   echo
 
   # -- Gate the ER gateway connection on the circuit's PROVIDER provisioning state.
@@ -570,7 +634,7 @@ run_expressroute() {
   warn "The ER gateway connection was deliberately NOT created, because attaching"
   warn "to a circuit the provider has not provisioned fails."
   echo
-  warn "Provision the circuit with your provider using the keys printed above:"
+  warn "Provision the circuit with your provider using the keys displayed above:"
   warn "1. Log in to https://portal.megaport.com"
   warn "2. Create a VXC to Google Cloud  ->  paste the GCP pairing key above."
   warn "3. Create a VXC to Azure ExpressRoute  ->  paste the Azure service key above."

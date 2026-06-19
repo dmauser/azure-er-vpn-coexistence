@@ -69,3 +69,50 @@
 - **Root cause:** Azure has consolidated VPN gateway SKUs and now rejects legacy non-AZ variants (VpnGw1–VpnGw5).
 - **Fix applied:** `terraform/azure/variables.tf` gateway_sku default changed to `VpnGw1AZ` with validation regex `^VpnGw[1-5]AZ$`; `terraform/azure/gateways.tf` vpn_gw_pip1/pip2 now set `zones = ["1","2","3"]` for zone-redundant Standard PIPs (required by AZ SKUs); `terraform.tfvars.example` example updated to VpnGw1AZ. Verified live — Azure accepted the VpnGw1AZ create.
 - **Documentation added:** New troubleshooting subsection "VPN gateway SKU: AZ SKUs required (NonAzSkusNotAllowedForVPNGateway)" in `terraform/README.md` near the "Restricted subscriptions: Standard public IP gate" section documents the error, the AZ-only requirement, zone-redundant PIP configuration, and validation rules.
+
+### 2026-06-19 — Standard public IP pre-check opt-in
+
+- **Deploy pre-flight behavior:** `scripts/deploy.ps1` and `scripts/deploy.sh` now skip the Azure Standard public IP capability probe by default and print an ok/info line explaining `RUN_PIP_PRECHECK=1` enables it.
+- **Opt-in env var:** Use `RUN_PIP_PRECHECK=1` to run the temp-RG Standard PIP probe before Terraform apply; `SKIP_PIP_PRECHECK` is retired.
+- **User-facing guidance:** The failure message no longer suggests bypassing the check because the user explicitly opted in when it runs.
+
+### 2026-06-19 — Import recovery after mid-apply machine reboot
+
+**Trigger:** Machine rebooted mid `terraform apply`; Azure resources were created but state file was NOT written (OneDrive may have locked it during the write). Re-running `apply` failed with:
+> `Error: A resource with the ID ".../virtualNetworkGateways/Az-Hub-ergw" already exists`
+
+**Diagnosis steps:**
+1. `terraform -chdir=terraform/azure state list` — verified what IS tracked.
+2. Cross-referenced with `az network vnet-gateway show` and `az network vnet peering show` to find what existed in Azure but not in state.
+
+**Resources missing from state (orphaned in Azure):**
+- `azurerm_virtual_network_gateway.er` — `/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-er-vpn-coexistence/providers/Microsoft.Network/virtualNetworkGateways/Az-Hub-ergw`
+
+**Resources that did NOT exist in Azure yet (genuinely missing — need create):**
+- `azurerm_virtual_network_peering.spoke1_to_hub`
+- `azurerm_virtual_network_peering.spoke2_to_hub`
+
+**Import command run:**
+```powershell
+$env:TF_VAR_vm_admin_password = 'Resume!Plan#2026Strong'
+terraform -chdir=terraform/azure import `
+  -var="vm_admin_username=azureuser" `
+  'azurerm_virtual_network_gateway.er' `
+  '/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-er-vpn-coexistence/providers/Microsoft.Network/virtualNetworkGateways/Az-Hub-ergw'
+```
+
+**Post-import plan result (clean — no "already exists" conflicts):**
+- `azurerm_virtual_network_gateway.er` — update in-place (add `public_ip_address_id` to ip_configuration)
+- `azurerm_virtual_network_peering.spoke1_to_hub` — create
+- `azurerm_virtual_network_peering.spoke2_to_hub` — create
+- 3 VMs showed `-/+` ONLY because of the placeholder password used for planning — **NOT a real replacement issue**; when `deploy.ps1` is re-run with the original password, the VMs match state and are not touched.
+
+**Password artifact warning:** Using a placeholder `TF_VAR_vm_admin_password` during `terraform plan`/`import` will show VM force-replacement in the plan diff (admin_password forces replacement). This is harmless for import; the actual apply via `deploy.ps1` with the real password will not replace the VMs.
+
+**Resume command for the user:**
+```powershell
+./scripts/deploy.ps1 -AutoApprove
+```
+(Re-run will detect existing GCP state, keep `enable_onprem_connection=true`, apply only what is missing.)
+
+**OneDrive state-lock prevention:** The state file lives at `terraform/azure/terraform.tfstate` on an OneDrive-synced path. If apply fails with a file-lock error, pause OneDrive sync temporarily (`Pause syncing > 2 hours`) before retrying. Local state on OneDrive is susceptible to file locks during sync events.

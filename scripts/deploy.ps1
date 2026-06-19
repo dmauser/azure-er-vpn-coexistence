@@ -96,6 +96,12 @@ $DefaultUsername  = 'azureuser'
 $DefaultLocation  = 'centralus'
 $DefaultRegion    = 'us-central1'
 
+# --- Megaport key polling tunables -------------------------------------------
+# How long to wait between polls (seconds) and when to give up (seconds).
+# 1800 s = 30 min; GCP VLAN attachments / Azure ER circuits can take 20+ min.
+$KeyPollIntervalSec = 30
+$KeyPollTimeoutSec  = 1800
+
 # --- mutable script-scope state (functions read/write via $script:) ----------
 $script:Project  = $Project
 $script:CallerIp = $CallerIp
@@ -236,8 +242,8 @@ Not logged in to Azure.
     # -- Standard public IP capability ----------------------------------------
     Write-Step 'Azure Standard public IP capability'
 
-    if ($env:SKIP_PIP_PRECHECK) {
-        Write-Ok 'Standard public IP pre-check skipped (SKIP_PIP_PRECHECK set)'
+    if (-not $env:RUN_PIP_PRECHECK) {
+        Write-Ok 'Standard public IP pre-check skipped (set RUN_PIP_PRECHECK=1 to enable)'
     } else {
         $pipRg = "tfpreflight-pip-$(Get-Random)"
         & az group create -n $pipRg -l eastus --output none 2>$null
@@ -265,7 +271,6 @@ Fix it once on this subscription (then re-run this script):
   az provider register --namespace Microsoft.Network
 
 Or deploy on a subscription that is not restricted (Standard public IPs work with no setup).
-To bypass this check, set SKIP_PIP_PRECHECK=1.
 "@
         } else {
             Write-Fail "Could not create a test Standard public IP (unexpected error): $probeOut"
@@ -574,21 +579,72 @@ function Invoke-ExpressRoute {
         '-var=enable_er_connection=false'
     ) + $tfAutoApprove)
 
-    Write-Step 'Step 4c - Retrieve pairing keys for Megaport'
+    Write-Step 'Step 4c - Wait for Megaport keys (GCP pairing key + Azure service key)'
+    Write-Host "  Polling every ${KeyPollIntervalSec}s, timeout ${KeyPollTimeoutSec}s (~$([int]($KeyPollTimeoutSec/60)) min)." -ForegroundColor Cyan
+    Write-Host "  Press Ctrl-C at any time to abort (keys will not be displayed)." -ForegroundColor Cyan
     Write-Host ''
-    Write-Host "  GCP Partner Interconnect pairing key  ->  paste into Megaport 'Google Cloud' VXC:" `
-        -ForegroundColor Cyan
-    & terraform -chdir=$GcpDir output -raw interconnect_pairing_key 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn 'Pairing key not yet available - the VLAN attachment may still be provisioning.'
+
+    $pairingKey    = ''
+    $serviceKey    = ''
+    $pollStart     = [System.Diagnostics.Stopwatch]::StartNew()
+
+    while ($true) {
+        # Try GCP pairing key if not yet captured.
+        if ([string]::IsNullOrWhiteSpace($pairingKey)) {
+            $k = (& terraform -chdir=$GcpDir output -raw interconnect_pairing_key 2>$null)
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($k)) {
+                $pairingKey = $k
+                Write-Ok "GCP pairing key captured."
+            }
+        }
+
+        # Try Azure service key if not yet captured.
+        if ([string]::IsNullOrWhiteSpace($serviceKey)) {
+            $k = (& terraform -chdir=$AzureDir output -raw expressroute_service_key 2>$null)
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($k)) {
+                $serviceKey = $k
+                Write-Ok "Azure service key captured."
+            }
+        }
+
+        # Both keys in hand -> exit polling loop.
+        if (-not [string]::IsNullOrWhiteSpace($pairingKey) -and `
+            -not [string]::IsNullOrWhiteSpace($serviceKey)) {
+            break
+        }
+
+        # Check timeout.
+        $elapsed = [int]$pollStart.Elapsed.TotalSeconds
+        if ($elapsed -ge $KeyPollTimeoutSec) {
+            Write-Warn "Key polling timed out after ${elapsed}s."
+            break
+        }
+
+        # Report which keys are still pending.
+        $pending = @()
+        if ([string]::IsNullOrWhiteSpace($pairingKey)) { $pending += 'GCP pairing key' }
+        if ([string]::IsNullOrWhiteSpace($serviceKey))  { $pending += 'Azure service key' }
+        Write-Host "  [${elapsed}s elapsed]  Still waiting for: $($pending -join ', ') ..." -ForegroundColor Yellow
+
+        Start-Sleep -Seconds $KeyPollIntervalSec
+    }
+
+    Write-Host ''
+    if (-not [string]::IsNullOrWhiteSpace($pairingKey)) {
+        Write-Host "  GCP Partner Interconnect pairing key  ->  paste into Megaport 'Google Cloud' VXC:" `
+            -ForegroundColor Cyan
+        Write-Host "    $pairingKey"
+    } else {
+        Write-Warn 'GCP pairing key not available - the VLAN attachment may still be provisioning.'
     }
     Write-Host ''
 
-    Write-Host "  Azure ExpressRoute service key  ->  paste into Megaport 'Azure ExpressRoute' VXC:" `
-        -ForegroundColor Cyan
-    & terraform -chdir=$AzureDir output -raw expressroute_service_key 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn 'Service key not yet available.'
+    if (-not [string]::IsNullOrWhiteSpace($serviceKey)) {
+        Write-Host "  Azure ExpressRoute service key  ->  paste into Megaport 'Azure ExpressRoute' VXC:" `
+            -ForegroundColor Cyan
+        Write-Host "    $serviceKey"
+    } else {
+        Write-Warn 'Azure service key not available - the ER circuit may still be provisioning.'
     }
     Write-Host ''
 
@@ -632,7 +688,7 @@ function Invoke-ExpressRoute {
     Write-Warn 'The ER gateway connection was deliberately NOT created, because attaching'
     Write-Warn 'to a circuit the provider has not provisioned fails.'
     Write-Host ''
-    Write-Warn 'Provision the circuit with your provider using the keys printed above:'
+    Write-Warn 'Provision the circuit with your provider using the keys displayed above:'
     Write-Warn '1. Log in to https://portal.megaport.com'
     Write-Warn '2. Create a VXC to Google Cloud  ->  paste the GCP pairing key above.'
     Write-Warn '3. Create a VXC to Azure ExpressRoute  ->  paste the Azure service key above.'
