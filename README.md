@@ -582,6 +582,49 @@ Prints a **friendly view**: a health summary (VPN tunnel up/down, gateway `READY
 
 The original `routes.azcli` and `routes.ps1` scripts are archived under [`archive/`](./archive/README.md) for reference only.
 
+## Key / secret dump helpers
+
+Use these to print the connection secrets to the console (for pasting into a provider portal or the peer cloud). Each verifies its CLI is authenticated and continues gracefully when a resource is disabled or unprovisioned. **The values are sensitive — do not capture this output into logs.**
+
+### Azure — `dump-keys-azure.sh` / `dump-keys-azure.ps1`
+
+Prints the **ExpressRoute circuit service key** (the key you give the connectivity provider). Reads it from `terraform output -raw expressroute_service_key` when available, otherwise falls back to `az network express-route show --query serviceKey`.
+
+```bash
+./scripts/dump-keys-azure.sh
+./scripts/dump-keys-azure.sh --resource-group lab-ervpn-coexist --circuit-name az-hub-er-circuit --yes
+```
+
+```powershell
+.\scripts\dump-keys-azure.ps1
+.\scripts\dump-keys-azure.ps1 -ResourceGroup lab-ervpn-coexist -CircuitName az-hub-er-circuit -Yes
+```
+
+| Flag (bash) | Param (PowerShell) | Environment | Default |
+|---|---|---|---|
+| `--resource-group` | `-ResourceGroup` | `AZURE_KEYS_RG` | `lab-ervpn-coexist` |
+| `--circuit-name` | `-CircuitName` | `AZURE_KEYS_CIRCUIT` | terraform output or `az-hub-er-circuit` |
+| `--yes` | `-Yes` | `AZURE_KEYS_YES` | off (interactive) |
+
+### GCP — `dump-keys-gcp.sh` / `dump-keys-gcp.ps1`
+
+Prints the **Partner Interconnect VLAN attachment pairing key** (the key you hand to the connectivity provider to provision the VXC). Reads it from the GCP module's `terraform output -raw interconnect_pairing_key` when available, otherwise falls back to `gcloud compute interconnects attachments describe --format="value(pairingKey)"`. Requires `enable_interconnect = true`.
+
+```bash
+./scripts/dump-keys-gcp.sh --project my-gcp-project --region us-central1
+```
+
+```powershell
+.\scripts\dump-keys-gcp.ps1 -Project my-gcp-project -Region us-central1
+```
+
+| Flag (bash) | Param (PowerShell) | Environment | Default |
+|---|---|---|---|
+| `--project` | `-Project` | `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` | gcloud config |
+| `--region` | `-Region` | `GCP_REGION` | `us-central1` |
+| `--attachment` | `-Attachment` | `GCP_INTERCONNECT_ATTACHMENT` | terraform output or `vpnlab-vlan` |
+| `--no-prompt` | `-NoPrompt` | — | off (interactive) |
+
 ---
 
 ## Notes on GCP Classic VPN deprecation
@@ -603,6 +646,8 @@ The original `routes.azcli` and `routes.ps1` scripts are archived under [`archiv
 | [`scripts/cleanup-gcp.sh`](./scripts/cleanup-gcp.sh), [`scripts/cleanup-gcp.ps1`](./scripts/cleanup-gcp.ps1) | **GCP-only teardown** — `terraform destroy` of the GCP module. Run **after** the Azure cleanup. |
 | [`scripts/dump-routes-azure.sh`](./scripts/dump-routes-azure.sh), [`scripts/dump-routes-azure.ps1`](./scripts/dump-routes-azure.ps1) | Azure route inspection helpers. Prompt to select which components to dump — VMs/NICs effective routes, ExpressRoute circuit routes, ExpressRoute gateway routes, and VPN gateway routes (each independently selectable). |
 | [`scripts/dump-routes-gcp.sh`](./scripts/dump-routes-gcp.sh), [`scripts/dump-routes-gcp.ps1`](./scripts/dump-routes-gcp.ps1) | GCP route inspection helpers. Print a friendly health summary (VPN tunnel, gateway, static route, BGP) plus readable VPN tunnel/route detail and labeled tables for VPC routes, forwarding rules, and firewall rules. Add `--raw`/`-Raw` for full gcloud YAML. |
+| [`scripts/dump-keys-azure.sh`](./scripts/dump-keys-azure.sh), [`scripts/dump-keys-azure.ps1`](./scripts/dump-keys-azure.ps1) | Print the ExpressRoute circuit **service key** (from terraform output or `az network express-route show`). Sensitive output. |
+| [`scripts/dump-keys-gcp.sh`](./scripts/dump-keys-gcp.sh), [`scripts/dump-keys-gcp.ps1`](./scripts/dump-keys-gcp.ps1) | Print the Partner Interconnect VLAN attachment **pairing key** — from the GCP `interconnect_pairing_key` output or `gcloud compute interconnects attachments describe`. Sensitive output. Requires `enable_interconnect = true`. |
 | [`terraform/README.md`](./terraform/README.md) | **Terraform runbook** — scripted deployment, manual 3-apply order, VPN verification, ExpressRoute provisioning, route inspection, coexistence testing, and cleanup. **Start here.** |
 | [`archive/`](./archive/) | **Legacy lab automation** — original bash/PowerShell scripts and ARM/Bicep templates now superseded by Terraform. See [`archive/README.md`](./archive/README.md). Kept for reference only. |
 | [`media/`](./media/) | Architecture diagrams (Mermaid/SVG). |
