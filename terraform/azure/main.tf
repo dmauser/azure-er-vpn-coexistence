@@ -88,6 +88,11 @@ resource "azurerm_subnet" "spoke1_subnet1" {
 resource "azurerm_subnet_network_security_group_association" "spoke1_subnet1" {
   subnet_id                 = azurerm_subnet.spoke1_subnet1.id
   network_security_group_id = azurerm_network_security_group.default.id
+
+  # Serialize NSG associations to avoid ARM 429 throttling.
+  # Azure serializes subnet writes per-VNet; concurrent associations across
+  # multiple VNets compounded with peering/NIC traffic exhausts provider retries.
+  depends_on = [azurerm_subnet_network_security_group_association.hub_subnet1]
 }
 
 # ---------------------------------------------------------------------------
@@ -111,6 +116,8 @@ resource "azurerm_subnet" "spoke2_subnet1" {
 resource "azurerm_subnet_network_security_group_association" "spoke2_subnet1" {
   subnet_id                 = azurerm_subnet.spoke2_subnet1.id
   network_security_group_id = azurerm_network_security_group.default.id
+
+  depends_on = [azurerm_subnet_network_security_group_association.spoke1_subnet1]
 }
 
 # ---------------------------------------------------------------------------
