@@ -616,23 +616,31 @@ run_expressroute() {
   PAIRING_KEY=""
   SERVICE_KEY=""
   POLL_START="$(date +%s)"
+  LAST_LOCK_WARN="false"
 
   while true; do
-    # Try GCP pairing key if not yet captured.
+    LOCK_NOW="false"
+
+    # Try GCP pairing key if not yet captured. Capture stderr so we can spot
+    # transient state-file locks (OneDrive sync) vs "still provisioning".
     if [[ -z "${PAIRING_KEY}" ]]; then
-      _k="$(terraform -chdir="${GCP_DIR}" output -raw interconnect_pairing_key 2>/dev/null || true)"
-      if [[ -n "${_k}" ]]; then
+      _k="$(terraform -chdir="${GCP_DIR}" output -raw interconnect_pairing_key 2>&1 || true)"
+      if [[ -n "${_k}" && ! "${_k}" =~ (Error:|locked|Failed\ to\ read\ state) ]]; then
         PAIRING_KEY="${_k}"
         ok "GCP pairing key captured."
+      elif [[ "${_k}" =~ (locked|Failed\ to\ read\ state) ]]; then
+        LOCK_NOW="true"
       fi
     fi
 
     # Try Azure service key if not yet captured.
     if [[ -z "${SERVICE_KEY}" ]]; then
-      _k="$(terraform -chdir="${AZURE_DIR}" output -raw expressroute_service_key 2>/dev/null || true)"
-      if [[ -n "${_k}" ]]; then
+      _k="$(terraform -chdir="${AZURE_DIR}" output -raw expressroute_service_key 2>&1 || true)"
+      if [[ -n "${_k}" && ! "${_k}" =~ (Error:|locked|Failed\ to\ read\ state) ]]; then
         SERVICE_KEY="${_k}"
         ok "Azure service key captured."
+      elif [[ "${_k}" =~ (locked|Failed\ to\ read\ state) ]]; then
+        LOCK_NOW="true"
       fi
     fi
 
@@ -656,7 +664,18 @@ run_expressroute() {
       [[ -n "${PENDING}" ]] && PENDING="${PENDING}, "
       PENDING="${PENDING}Azure service key"
     fi
-    printf "${YLW}  [%ds elapsed]  Still waiting for: %s ...${NC}\n" "${ELAPSED}" "${PENDING}"
+
+    # Flag transient state locks once so users know what's happening.
+    if [[ "${LOCK_NOW}" == "true" && "${LAST_LOCK_WARN}" != "true" ]]; then
+      warn 'terraform state file is locked (likely OneDrive sync). Polling will retry; you can also read the keys directly:'
+      warn '  terraform -chdir=terraform/gcp   output -raw interconnect_pairing_key'
+      warn '  terraform -chdir=terraform/azure output -raw expressroute_service_key'
+    fi
+    LAST_LOCK_WARN="${LOCK_NOW}"
+
+    LOCK_TAG=""
+    [[ "${LOCK_NOW}" == "true" ]] && LOCK_TAG=" (state locked, retrying)"
+    printf "${YLW}  [%ds elapsed]  Still waiting for: %s%s ...${NC}\n" "${ELAPSED}" "${PENDING}" "${LOCK_TAG}"
 
     sleep "${KEY_POLL_INTERVAL}"
   done

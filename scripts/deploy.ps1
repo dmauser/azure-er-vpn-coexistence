@@ -668,24 +668,31 @@ function Invoke-ExpressRoute {
     $pairingKey    = ''
     $serviceKey    = ''
     $pollStart     = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastLockWarn  = $false
 
     while ($true) {
-        # Try GCP pairing key if not yet captured.
+        # Try GCP pairing key if not yet captured. Capture stderr so we can
+        # distinguish "still provisioning" from "OneDrive state lock" (the
+        # latter is a transient OS-level file lock on terraform.tfstate).
         if ([string]::IsNullOrWhiteSpace($pairingKey)) {
-            $k = (& terraform -chdir=$GcpDir output -raw interconnect_pairing_key 2>$null)
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($k)) {
-                $pairingKey = $k
+            $gcpErr = $null
+            $k = (& terraform -chdir=$GcpDir output -raw interconnect_pairing_key 2>&1) -join "`n"
+            if ($LASTEXITCODE -eq 0 -and $k -and -not ($k -match 'Error:|locked')) {
+                $pairingKey = $k.Trim()
                 Write-Ok "GCP pairing key captured."
             }
+            elseif ($k -match 'locked|Failed to read state') { $gcpErr = $k }
         }
 
         # Try Azure service key if not yet captured.
         if ([string]::IsNullOrWhiteSpace($serviceKey)) {
-            $k = (& terraform -chdir=$AzureDir output -raw expressroute_service_key 2>$null)
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($k)) {
-                $serviceKey = $k
+            $azErr = $null
+            $k = (& terraform -chdir=$AzureDir output -raw expressroute_service_key 2>&1) -join "`n"
+            if ($LASTEXITCODE -eq 0 -and $k -and -not ($k -match 'Error:|locked')) {
+                $serviceKey = $k.Trim()
                 Write-Ok "Azure service key captured."
             }
+            elseif ($k -match 'locked|Failed to read state') { $azErr = $k }
         }
 
         # Both keys in hand -> exit polling loop.
@@ -701,11 +708,19 @@ function Invoke-ExpressRoute {
             break
         }
 
-        # Report which keys are still pending.
+        # Report which keys are still pending; flag transient state locks once.
         $pending = @()
         if ([string]::IsNullOrWhiteSpace($pairingKey)) { $pending += 'GCP pairing key' }
         if ([string]::IsNullOrWhiteSpace($serviceKey))  { $pending += 'Azure service key' }
-        Write-Host "  [${elapsed}s elapsed]  Still waiting for: $($pending -join ', ') ..." -ForegroundColor Yellow
+        $lockNow = ($gcpErr -or $azErr)
+        if ($lockNow -and -not $lastLockWarn) {
+            Write-Warn 'terraform state file is locked (likely OneDrive sync). Polling will retry; you can also read the keys directly:'
+            Write-Warn '  terraform -chdir=terraform/gcp   output -raw interconnect_pairing_key'
+            Write-Warn '  terraform -chdir=terraform/azure output -raw expressroute_service_key'
+        }
+        $lastLockWarn = [bool]$lockNow
+
+        Write-Host "  [${elapsed}s elapsed]  Still waiting for: $($pending -join ', ') $(if ($lockNow) { '(state locked, retrying)' }) ..." -ForegroundColor Yellow
 
         Start-Sleep -Seconds $KeyPollIntervalSec
     }
