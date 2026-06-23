@@ -24,6 +24,7 @@ readonly GCP_DIR="terraform/gcp"
 readonly DEFAULT_USERNAME="azureuser"
 readonly DEFAULT_LOCATION="centralus"
 readonly DEFAULT_REGION="us-central1"
+readonly DEFAULT_MACHINE_TYPE="e2-micro"
 readonly DEFAULT_RG="lab-ervpn-coexist"
 
 # --- Megaport key polling tunables -------------------------------------------
@@ -44,6 +45,7 @@ VM_PASSWORD=""
 AZURE_LOCATION=""
 GCP_REGION=""
 GCP_ZONE=""
+GCP_MACHINE_TYPE=""
 AZURE_RG=""
 
 # --- output helpers ----------------------------------------------------------
@@ -82,6 +84,9 @@ OPTIONS
   --location <region>     Azure region (default: centralus). Prompted if interactive.
   --region <region>       GCP region (default: us-central1). Prompted if interactive.
   --zone <zone>           GCP zone (default: <region>-c). Prompted if interactive.
+  --machine-type <sku>    GCE machine type (default: e2-micro). Verified against
+                          the zone before deploy; alternatives in the region are
+                          listed on stockouts.
   --vm-username <name>    VM admin username (default: azureuser). Prompted if interactive.
   --vm-password <pass>    VM admin password (prompted securely if omitted).
   --caller-ip <ip>        Override auto-detected public IP (GCP SSH firewall; no mask).
@@ -132,6 +137,9 @@ parse_args() {
       --zone)
         [[ $# -ge 2 ]] || fail "--zone requires a value"
         GCP_ZONE="$2"; shift 2 ;;
+      --machine-type)
+        [[ $# -ge 2 ]] || fail "--machine-type requires a value"
+        GCP_MACHINE_TYPE="$2"; shift 2 ;;
       --vm-username)
         [[ $# -ge 2 ]] || fail "--vm-username requires a value"
         VM_USERNAME="$2"; shift 2 ;;
@@ -393,9 +401,36 @@ collect_inputs() {
     fi
   fi
 
+  [[ -n "${GCP_MACHINE_TYPE}" ]] || GCP_MACHINE_TYPE="${DEFAULT_MACHINE_TYPE}"
+
   ok "VM admin username: ${VM_USERNAME}"
   ok "Azure location:    ${AZURE_LOCATION}"
   ok "GCP region / zone: ${GCP_REGION} / ${GCP_ZONE}"
+  ok "GCP machine type:  ${GCP_MACHINE_TYPE}"
+
+  # -- GCP machine type availability ------------------------------------------
+  # Verifies the requested machine_type is OFFERED in the chosen zone.
+  # Capacity (stockouts) cannot be predicted; we list other zones in the
+  # region that offer this SKU so the user can re-run with --zone if needed.
+  step "GCP machine type availability (${GCP_MACHINE_TYPE} in ${GCP_ZONE})"
+  if ! gcloud compute machine-types describe "${GCP_MACHINE_TYPE}" \
+      --zone "${GCP_ZONE}" \
+      --project "${PROJECT}" \
+      --format='value(name)' &>/dev/null; then
+    alt_zones="$(gcloud compute machine-types list \
+      --filter="name=${GCP_MACHINE_TYPE} AND zone~^${GCP_REGION}-" \
+      --project "${PROJECT}" \
+      --format='value(zone)' 2>/dev/null | tr '\n' ' ')"
+    fail "Machine type '${GCP_MACHINE_TYPE}' is NOT offered in zone '${GCP_ZONE}'.
+Zones in '${GCP_REGION}' that offer it: ${alt_zones:-(none found)}
+Re-run with: --zone <alt-zone>  or  --machine-type <other-sku>"
+  fi
+  alt_zones="$(gcloud compute machine-types list \
+    --filter="name=${GCP_MACHINE_TYPE} AND zone~^${GCP_REGION}-" \
+    --project "${PROJECT}" \
+    --format='value(zone)' 2>/dev/null | tr '\n' ' ')"
+  ok "Offered in ${GCP_ZONE}. Other zones in ${GCP_REGION} with this SKU: ${alt_zones}"
+  warn 'Note: GCP cannot pre-check capacity. If apply fails with "does not have enough resources", re-run with --zone <alt> from above.'
   ok "Azure resource group: ${AZURE_RG}"
 
   # VM admin password - never echoed; passed to Terraform via TF_VAR_ env var
@@ -521,6 +556,7 @@ run_deploy() {
     -var "project=${PROJECT}" \
     -var "region=${GCP_REGION}" \
     -var "zone=${GCP_ZONE}" \
+    -var "machine_type=${GCP_MACHINE_TYPE}" \
     -var "caller_source_ip=${CALLER_IP}"
 
   # -- Step 3: Azure connection ----------------------------------------------
@@ -553,6 +589,7 @@ run_expressroute() {
     -var "project=${PROJECT}" \
     -var "region=${GCP_REGION}" \
     -var "zone=${GCP_ZONE}" \
+    -var "machine_type=${GCP_MACHINE_TYPE}" \
     -var "caller_source_ip=${CALLER_IP}" \
     -var "enable_interconnect=true"
 
@@ -720,6 +757,7 @@ run_destroy() {
     -var "project=${PROJECT}" \
     -var "region=${GCP_REGION}" \
     -var "zone=${GCP_ZONE}" \
+    -var "machine_type=${GCP_MACHINE_TYPE}" \
     -var "caller_source_ip=${CALLER_IP}"
 
   banner "DESTROY COMPLETE"

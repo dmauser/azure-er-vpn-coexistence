@@ -71,7 +71,7 @@ resource "google_compute_firewall" "allow_rfc1918_iap" {
 # ---------------------------------------------------------------------------
 resource "google_compute_instance" "vm1" {
   name                    = "${var.envname}-vm1"
-  machine_type            = "e2-micro"
+  machine_type            = var.machine_type
   zone                    = var.zone
   metadata_startup_script = local.nettools_startup
 

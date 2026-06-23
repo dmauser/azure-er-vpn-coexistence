@@ -21,6 +21,12 @@ variable "vpc_range" {
   default     = "192.168.0.0/24"
 }
 
+variable "machine_type" {
+  description = "GCE machine type for the test VM (e.g. e2-micro, e2-small, e2-medium)."
+  type        = string
+  default     = "e2-micro"
+}
+
 variable "envname" {
   description = "Prefix applied to all resource names."
   type        = string

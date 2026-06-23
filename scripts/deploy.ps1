@@ -41,6 +41,11 @@
 .PARAMETER Zone
     GCP zone (default: <region>-c). Prompted interactively if not supplied.
 
+.PARAMETER MachineType
+    GCE machine type for the test VM (default: e2-micro). Verified against
+    the configured zone before deploy; alternative zones in the region are
+    listed if the SKU isn't offered or if a capacity stockout occurs.
+
 .PARAMETER CallerIp
     Override the auto-detected public IP (GCP SSH firewall; no CIDR mask).
 
@@ -76,6 +81,7 @@ param(
     [string]$Location     = '',
     [string]$Region       = '',
     [string]$Zone         = '',
+    [string]$MachineType  = '',
     [string]$CallerIp     = '',
     [string]$VmUsername   = '',
     [securestring]$VmPassword
@@ -95,6 +101,7 @@ $GcpDir           = 'terraform/gcp'
 $DefaultUsername  = 'azureuser'
 $DefaultLocation  = 'centralus'
 $DefaultRegion    = 'us-central1'
+$DefaultMachineType = 'e2-micro'
 
 # --- Megaport key polling tunables -------------------------------------------
 # How long to wait between polls (seconds) and when to give up (seconds).
@@ -109,6 +116,7 @@ $script:Username = $VmUsername
 $script:Location = $Location
 $script:Region   = $Region
 $script:Zone     = $Zone
+$script:MachineType = $MachineType
 $script:AzureRG  = ''
 
 # --- output helpers ----------------------------------------------------------
@@ -416,10 +424,40 @@ function Get-RequiredInputs {
         else { $script:AzureRG = $DefaultAzureRG }
     }
 
+    if (-not $script:MachineType) { $script:MachineType = $DefaultMachineType }
+
     Write-Ok "VM admin username: $($script:Username)"
     Write-Ok "Azure location:    $($script:Location)"
     Write-Ok "GCP region / zone: $($script:Region) / $($script:Zone)"
+    Write-Ok "GCP machine type:  $($script:MachineType)"
     Write-Ok "Azure resource group: $($script:AzureRG)"
+
+    # -- GCP machine type availability ----------------------------------------
+    # Verifies the requested machine_type is OFFERED in the chosen zone.
+    # Capacity (stockouts) cannot be predicted; we list other zones in the
+    # region that offer this SKU so the user can re-run with -Zone if needed.
+    Write-Step "GCP machine type availability ($($script:MachineType) in $($script:Zone))"
+    & gcloud compute machine-types describe $script:MachineType `
+        --zone $script:Zone `
+        --project $script:Project `
+        --format='value(name)' 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        $altZones = (& gcloud compute machine-types list `
+            --filter="name=$($script:MachineType) AND zone~^$($script:Region)-" `
+            --project $script:Project `
+            --format='value(zone)' 2>$null) -join ' '
+        Write-Fail @"
+Machine type '$($script:MachineType)' is NOT offered in zone '$($script:Zone)'.
+Zones in '$($script:Region)' that offer it: $(if ($altZones) { $altZones } else { '(none found)' })
+Re-run with: -Zone <alt-zone>  or  -MachineType <other-sku>
+"@
+    }
+    $altZones = (& gcloud compute machine-types list `
+        --filter="name=$($script:MachineType) AND zone~^$($script:Region)-" `
+        --project $script:Project `
+        --format='value(zone)' 2>$null) -join ' '
+    Write-Ok "Offered in $($script:Zone). Other zones in $($script:Region) with this SKU: $altZones"
+    Write-Warn 'Note: GCP cannot pre-check capacity. If apply fails with "does not have enough resources", re-run with -Zone <alt> from above.'
 
     # VM admin password - stored in TF_VAR_vm_admin_password env var so Terraform
     # reads it automatically and it never appears on a command line.
@@ -562,6 +600,7 @@ function Invoke-Deploy {
         "-var=project=$($script:Project)",
         "-var=region=$($script:Region)",
         "-var=zone=$($script:Zone)",
+        "-var=machine_type=$($script:MachineType)",
         "-var=caller_source_ip=$($script:CallerIp)"
     ) + $tfAutoApprove)
 
@@ -600,6 +639,7 @@ function Invoke-ExpressRoute {
         "-var=project=$($script:Project)",
         "-var=region=$($script:Region)",
         "-var=zone=$($script:Zone)",
+        "-var=machine_type=$($script:MachineType)",
         "-var=caller_source_ip=$($script:CallerIp)",
         '-var=enable_interconnect=true'
     ) + $tfAutoApprove)
@@ -778,6 +818,7 @@ function Invoke-TfDestroy {
         "-var=project=$($script:Project)",
         "-var=region=$($script:Region)",
         "-var=zone=$($script:Zone)",
+        "-var=machine_type=$($script:MachineType)",
         "-var=caller_source_ip=$($script:CallerIp)"
     ) + $tfAutoApprove)
 
