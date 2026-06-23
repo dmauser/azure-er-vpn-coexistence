@@ -240,6 +240,33 @@ Not logged in to Azure.
     $azAcct = $azAcctJson | ConvertFrom-Json
     Write-Ok "Azure subscription: $($azAcct.name) ($($azAcct.id))"
 
+    # -- Confirm subscription (skip if -Subscription or -AutoApprove given) ---
+    if (-not $Subscription -and -not $AutoApprove) {
+        Write-Host ''
+        Write-Host "This deployment will create resources in subscription:" -ForegroundColor Yellow
+        Write-Host "  Name : $($azAcct.name)" -ForegroundColor Yellow
+        Write-Host "  Id   : $($azAcct.id)" -ForegroundColor Yellow
+        Write-Host "  Tenant: $($azAcct.tenantId)" -ForegroundColor Yellow
+        Write-Host ''
+        $reply = Read-Host 'Continue with this subscription? [Y]es / [n]o-pick-another / [q]uit'
+        switch -Regex ($reply.Trim().ToLower()) {
+            '^(n|no)$' {
+                Write-Host ''
+                Write-Host 'Available enabled subscriptions:' -ForegroundColor Cyan
+                & az account list --query "[?state=='Enabled'].{Name:name,Id:id}" -o table
+                Write-Host ''
+                $pick = Read-Host 'Enter subscription NAME or ID to switch to'
+                if (-not $pick) { Write-Fail 'No subscription provided. Aborting.' }
+                & az account set --subscription $pick 2>$null
+                if ($LASTEXITCODE -ne 0) { Write-Fail "Could not set subscription '$pick'." }
+                $azAcct = (& az account show --output json) | ConvertFrom-Json
+                Write-Ok "Switched to: $($azAcct.name) ($($azAcct.id))"
+            }
+            '^(q|quit)$' { Write-Fail 'Aborted by user.' }
+            default { Write-Ok 'Subscription confirmed.' }
+        }
+    }
+
     # -- Standard public IP capability ----------------------------------------
     Write-Step 'Azure Standard public IP capability'
 

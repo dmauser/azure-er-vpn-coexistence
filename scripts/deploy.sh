@@ -192,7 +192,35 @@ check_prereqs() {
   Run: az login
   Then set subscription: az account set --subscription <NAME_OR_ID>"
   AZ_ID=$(az account show --query id -o tsv 2>/dev/null)
+  AZ_TENANT=$(az account show --query tenantId -o tsv 2>/dev/null)
   ok "Azure subscription: ${AZ_NAME} (${AZ_ID})"
+
+  # -- Confirm subscription (skip if --subscription or --yes given) -----------
+  if [[ -z "${SUBSCRIPTION}" && -z "${AUTO_APPROVE_FLAG}" ]]; then
+    echo
+    echo "This deployment will create resources in subscription:"
+    echo "  Name  : ${AZ_NAME}"
+    echo "  Id    : ${AZ_ID}"
+    echo "  Tenant: ${AZ_TENANT}"
+    echo
+    read -r -p 'Continue with this subscription? [Y]es / [n]o-pick-another / [q]uit: ' reply
+    case "${reply,,}" in
+      n|no)
+        echo
+        echo 'Available enabled subscriptions:'
+        az account list --query "[?state=='Enabled'].{Name:name,Id:id}" -o table
+        echo
+        read -r -p 'Enter subscription NAME or ID to switch to: ' pick
+        [[ -n "${pick}" ]] || fail 'No subscription provided. Aborting.'
+        az account set --subscription "${pick}" || fail "Could not set subscription '${pick}'."
+        AZ_NAME=$(az account show --query name -o tsv)
+        AZ_ID=$(az account show --query id -o tsv)
+        ok "Switched to: ${AZ_NAME} (${AZ_ID})"
+        ;;
+      q|quit) fail 'Aborted by user.' ;;
+      *) ok 'Subscription confirmed.' ;;
+    esac
+  fi
 
   # -- Standard public IP capability ------------------------------------------
   step "Azure Standard public IP capability"
