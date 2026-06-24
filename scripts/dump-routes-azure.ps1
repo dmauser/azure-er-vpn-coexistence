@@ -141,9 +141,23 @@ function Invoke-AzGracefully {
 function Dump-CircuitRoutes {
     param([Parameter(Mandatory = $true)][string]$Path)
     Write-Host "-- ExpressRoute circuit route table ($Path)"
+    # NOTE: az returns {"value":[...]} for list-route-tables / list-arp-tables /
+    # list-route-tables-summary. The default -o table formatter does NOT flatten
+    # that wrapper and prints nothing. --query "value[]" flattens it so the
+    # table output actually shows the BGP RIB / ARP / summary rows.
     Invoke-AzGracefully `
         -UnavailableMessage "Circuit routes unavailable for path '$Path' (circuit not provisioned, ExpressRoute disabled, or peering missing). Continuing." `
-        -AzArgs @("network", "express-route", "list-route-tables", "--resource-group", $ResourceGroup, "--name", $CircuitName, "--peering-name", $PeeringName, "--path", $Path, "-o", "table")
+        -AzArgs @("network", "express-route", "list-route-tables", "--resource-group", $ResourceGroup, "--name", $CircuitName, "--peering-name", $PeeringName, "--path", $Path, "--query", "value[]", "-o", "table")
+    Write-Host ""
+    Write-Host "-- ExpressRoute circuit BGP summary ($Path)"
+    Invoke-AzGracefully `
+        -UnavailableMessage "Circuit BGP summary unavailable for path '$Path'. Continuing." `
+        -AzArgs @("network", "express-route", "list-route-tables-summary", "--resource-group", $ResourceGroup, "--name", $CircuitName, "--peering-name", $PeeringName, "--path", $Path, "--query", "value[]", "-o", "table")
+    Write-Host ""
+    Write-Host "-- ExpressRoute circuit ARP table ($Path)"
+    Invoke-AzGracefully `
+        -UnavailableMessage "Circuit ARP table unavailable for path '$Path'. Continuing." `
+        -AzArgs @("network", "express-route", "list-arp-tables", "--resource-group", $ResourceGroup, "--name", $CircuitName, "--peering-name", $PeeringName, "--path", $Path, "--query", "value[]", "-o", "table")
 }
 
 function Dump-EffectiveRoutes {

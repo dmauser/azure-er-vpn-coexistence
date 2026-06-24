@@ -158,14 +158,41 @@ discover_nics() {
 
 dump_circuit_routes_for_path() {
   local path="$1"
+  # NOTE: az returns {"value":[...]} for list-route-tables / list-arp-tables /
+  # list-route-tables-summary. The default -o table formatter does NOT flatten
+  # that wrapper and prints nothing. --query "value[]" flattens it so the
+  # table output actually shows the BGP RIB / ARP / summary rows.
   echo "-- ExpressRoute circuit route table ($path)"
   if ! az network express-route list-route-tables \
     --resource-group "$RG" \
     --name "$CIRCUIT" \
     --peering-name "$PEERING_NAME" \
     --path "$path" \
+    --query "value[]" \
     -o table; then
     note "Circuit routes unavailable for path '$path' (circuit not provisioned, ExpressRoute disabled, or peering missing). Continuing."
+  fi
+  echo
+  echo "-- ExpressRoute circuit BGP summary ($path)"
+  if ! az network express-route list-route-tables-summary \
+    --resource-group "$RG" \
+    --name "$CIRCUIT" \
+    --peering-name "$PEERING_NAME" \
+    --path "$path" \
+    --query "value[]" \
+    -o table; then
+    note "Circuit BGP summary unavailable for path '$path'. Continuing."
+  fi
+  echo
+  echo "-- ExpressRoute circuit ARP table ($path)"
+  if ! az network express-route list-arp-tables \
+    --resource-group "$RG" \
+    --name "$CIRCUIT" \
+    --peering-name "$PEERING_NAME" \
+    --path "$path" \
+    --query "value[]" \
+    -o table; then
+    note "Circuit ARP table unavailable for path '$path'. Continuing."
   fi
 }
 
